@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "shapebert": {
+      "command": "python",
+      "args": ["C:/path/to/shapebert-mcp/server.py"],
+      "env": {
+        "FREECAD_MCP_ALLOW_CODE": "0"
+      }
+    }
+  }
+}

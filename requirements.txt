@@ -1,0 +1,3 @@
+# MCP Python SDK, pinned to the version the tests run with.
+# Version 2 renamed FastMCP -> MCPServer, so stay on 1.x when updating.
+mcp==1.30.0

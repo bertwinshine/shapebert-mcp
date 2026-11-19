@@ -1,0 +1,489 @@
+[
+  {
+    "id": "L1-box",
+    "level": 1,
+    "domain": "none",
+    "prompt": "Make a box 80 mm long, 50 mm wide and 20 mm high.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        80000,
+        0.5
+      ],
+      "bbox_sorted_mm": [
+        [
+          20,
+          50,
+          80
+        ],
+        0.5
+      ]
+    },
+    "set": "v1",
+    "edit": {
+      "from": 80,
+      "to": 100,
+      "bbox_sorted_mm": [
+        [
+          20,
+          50,
+          100
+        ],
+        0.5
+      ]
+    }
+  },
+  {
+    "id": "L1-tube",
+    "level": 1,
+    "domain": "none",
+    "prompt": "Make a hollow cylinder (tube): outside diameter 40 mm, inside diameter 30 mm, length 100 mm.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        54977.9,
+        0.5
+      ],
+      "bbox_sorted_mm": [
+        [
+          40,
+          40,
+          100
+        ],
+        0.5
+      ],
+      "holes": {
+        "30.0": 1
+      }
+    },
+    "set": "v1"
+  },
+  {
+    "id": "L1-plate-4xM6",
+    "level": 1,
+    "domain": "fasteners-fits",
+    "prompt": "Rectangular plate 100 x 60 x 8 mm with four through holes for M6 bolts (medium clearance), each hole centre 12 mm from both adjacent edges.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        46905.1,
+        0.5
+      ],
+      "bbox_sorted_mm": [
+        [
+          8,
+          60,
+          100
+        ],
+        0.5
+      ],
+      "holes": {
+        "6.6": 4
+      }
+    },
+    "set": "v1",
+    "edit": {
+      "from": 8,
+      "to": 12,
+      "bbox_sorted_mm": [
+        [
+          12,
+          60,
+          100
+        ],
+        0.5
+      ]
+    }
+  },
+  {
+    "id": "L2-flange-6xM8",
+    "level": 2,
+    "domain": "fasteners-fits",
+    "prompt": "Circular flange: outside diameter 120 mm, thickness 12 mm, central bore 40 mm, six equally spaced through holes for M8 bolts (medium clearance) on a 90 mm pitch circle.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        116056.8,
+        0.5
+      ],
+      "bbox_sorted_mm": [
+        [
+          12,
+          120,
+          120
+        ],
+        0.5
+      ],
+      "holes": {
+        "9.0": 6,
+        "40.0": 1
+      }
+    },
+    "set": "v1",
+    "edit": {
+      "from": 12,
+      "to": 20,
+      "bbox_sorted_mm": [
+        [
+          20,
+          120,
+          120
+        ],
+        0.5
+      ]
+    }
+  },
+  {
+    "id": "L2-counterbored-plate",
+    "level": 2,
+    "domain": "fasteners-fits",
+    "prompt": "Plate 60 x 40 x 10 mm with two M5 socket-head counterbored holes (clearance 5.5 mm, counterbore 10 mm diameter, 5.4 mm deep, from the top face). Holes on the long centre line, 15 mm in from each short edge.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        22933.2,
+        0.5
+      ],
+      "bbox_sorted_mm": [
+        [
+          10,
+          40,
+          60
+        ],
+        0.5
+      ],
+      "holes": {
+        "5.5": 2,
+        "10.0": 2
+      }
+    },
+    "set": "v1",
+    "edit": {
+      "from": 60,
+      "to": 80,
+      "bbox_sorted_mm": [
+        [
+          10,
+          40,
+          80
+        ],
+        0.5
+      ]
+    }
+  },
+  {
+    "id": "L2-L-bracket-sheet",
+    "level": 2,
+    "domain": "sheet-metal",
+    "prompt": "Sheet-metal L bracket from 2 mm steel: outside leg lengths 50 mm and 40 mm, width 30 mm, inside bend radius 2 mm, 90 degree bend. No holes.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        5202.7,
+        1.0
+      ],
+      "bbox_sorted_mm": [
+        [
+          30,
+          40,
+          50
+        ],
+        0.5
+      ]
+    },
+    "set": "v1"
+  },
+  {
+    "id": "L2-stepped-shaft",
+    "level": 2,
+    "domain": "shafts-bearings",
+    "prompt": "Stepped shaft along Z: diameter 20 mm for 40 mm, then diameter 25 mm for 60 mm, then diameter 20 mm for 30 mm. No chamfers, no keyway.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        51443.6,
+        0.5
+      ],
+      "bbox_sorted_mm": [
+        [
+          25,
+          25,
+          130
+        ],
+        0.5
+      ]
+    },
+    "set": "v1",
+    "edit": {
+      "from": 60,
+      "to": 80,
+      "bbox_sorted_mm": [
+        [
+          25,
+          25,
+          150
+        ],
+        0.5
+      ]
+    }
+  },
+  {
+    "id": "L3-shs-frame",
+    "level": 3,
+    "domain": "weldments",
+    "prompt": "Welded rectangular frame lying flat in XY, outside size 1000 x 600 mm, from SHS 40x40x3 (square sharp-cornered tube, ignore corner radii), mitred 45 degree corners, one solid.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        1349760,
+        1.0
+      ],
+      "bbox_sorted_mm": [
+        [
+          40,
+          600,
+          1000
+        ],
+        0.5
+      ]
+    },
+    "set": "v1",
+    "edit": {
+      "from": 1000,
+      "to": 1200,
+      "bbox_sorted_mm": [
+        [
+          40,
+          600,
+          1200
+        ],
+        0.5
+      ]
+    }
+  },
+  {
+    "id": "L3-punt-hull",
+    "level": 3,
+    "domain": "boat-building-lsam",
+    "prompt": "Open-top punt hull as a simple box form, 2000 mm long, 1000 mm beam, 400 mm deep, 8 mm walls and bottom, Z up with the keel at Z=0. It must carry 250 kg total (boat + load) in fresh water with at least 200 mm freeboard.",
+    "expect": {
+      "solids": 1,
+      "bbox_sorted_mm": [
+        [
+          400,
+          1000,
+          2000
+        ],
+        0.5
+      ],
+      "hydrostatics": {
+        "mass_kg": 250,
+        "min_freeboard_mm": 200
+      }
+    },
+    "set": "v1",
+    "edit": {
+      "from": 2000,
+      "to": 2400,
+      "bbox_sorted_mm": [
+        [
+          400,
+          1000,
+          2400
+        ],
+        0.5
+      ]
+    }
+  },
+  {
+    "id": "L3-printable-hook",
+    "level": 3,
+    "domain": "fdm-3d-printing",
+    "prompt": "A PETG wall hook to 3D print lying flat on the bed: backplate 60 x 40 x 5 mm with two 4.5 mm screw holes, and a hook arm 8 mm wide and 5 mm thick sticking out 40 mm from one long edge, ending in a lip 12 mm tall. It must print WITHOUT supports on a 256 x 256 x 256 mm printer, with no wall thinner than 1.2 mm.",
+    "expect": {
+      "solids": 1,
+      "printability": {
+        "needs_support": false,
+        "fits": [
+          256,
+          256,
+          256
+        ],
+        "min_wall_mm": 1.2
+      },
+      "holes": {
+        "4.5": 2
+      }
+    },
+    "set": "v1"
+  },
+  {
+    "id": "ASK-motor-plate",
+    "level": 1,
+    "domain": "fasteners-fits",
+    "prompt": "Make a mounting plate with holes for my motor.",
+    "should_ask": true,
+    "set": "v1"
+  },
+  {
+    "id": "ASK-gearbox",
+    "level": 2,
+    "domain": "gears-power-transmission",
+    "prompt": "Design a gear pair for my gearbox.",
+    "should_ask": true,
+    "set": "v1"
+  },
+  {
+    "id": "V2-flange-DN50-PN16",
+    "set": "v2",
+    "level": 2,
+    "domain": "fasteners-fits",
+    "prompt": "Blind flange (no centre bore) for a DN50 PN16 pipe connection to EN 1092-1, 18 mm thick, lying flat on XY.",
+    "expect": {
+      "solids": 1,
+      "bbox_sorted_mm": [
+        [
+          18,
+          165,
+          165
+        ],
+        0.5
+      ],
+      "holes": {
+        "18.0": 4
+      },
+      "bolt_circle": {
+        "diameter_mm": 18.0,
+        "pcd_mm": 125,
+        "count": 4
+      }
+    }
+  },
+  {
+    "id": "V2-spur-pinion",
+    "set": "v2",
+    "level": 2,
+    "domain": "gears-power-transmission",
+    "prompt": "I need the pinion for a 3:1 spur gear reduction, module 2, 20 degree pressure angle, no profile shift. Use the smallest tooth count that avoids undercut and a standard face width. Model only the pinion with real teeth, axis along Z, with a 10 mm bore.",
+    "expect": {
+      "solids": 1,
+      "bbox_sorted_mm": [
+        [
+          [
+            20,
+            38,
+            38
+          ],
+          [
+            20,
+            40,
+            40
+          ]
+        ],
+        1.0
+      ],
+      "holes": {
+        "10.0": 1
+      },
+      "min_faces": 60
+    }
+  },
+  {
+    "id": "V2-flat-blank",
+    "set": "v2",
+    "level": 2,
+    "domain": "sheet-metal",
+    "prompt": "Model the flat blank (unbent laser-cut plate) for an L bracket made of 2 mm steel: outside leg lengths 50 mm and 40 mm, width 30 mm, inside bend radius 2 mm, 90 degree bend, K-factor 0.44.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        5191.4,
+        0.3
+      ],
+      "bbox_sorted_mm": [
+        [
+          2,
+          30,
+          86.52
+        ],
+        0.15
+      ]
+    }
+  },
+  {
+    "id": "V2-punt-payload",
+    "set": "v2",
+    "level": 3,
+    "domain": "boat-building-lsam",
+    "prompt": "Open-top box punt for two people: 180 kg payload, 40 kg boat, fresh water. Length 2400 mm, beam 1100 mm, 8 mm walls and bottom, Z up with the keel at Z=0. Choose the hull depth so the loaded freeboard is at least 250 mm, without making it deeper than necessary plus 100 mm.",
+    "expect": {
+      "solids": 1,
+      "bbox_sorted_mm": [
+        [
+          null,
+          1100,
+          2400
+        ],
+        0.5
+      ],
+      "hydrostatics": {
+        "mass_kg": 220,
+        "min_freeboard_mm": 250,
+        "max_freeboard_mm": 350
+      }
+    }
+  },
+  {
+    "id": "V2-keyed-shaft",
+    "set": "v2",
+    "level": 3,
+    "domain": "shafts-bearings",
+    "prompt": "Shaft, diameter 30 mm, 100 mm long, axis along Z from Z=0. Add a DIN 6885 form A parallel keyway (rounded ends) for this diameter, 40 mm long overall, centred along the length, on the +X side. Use the standard key width and shaft groove depth.",
+    "expect": {
+      "solids": 1,
+      "volume_mm3": [
+        69513.6,
+        0.2
+      ],
+      "bbox_sorted_mm": [
+        [
+          30,
+          30,
+          100
+        ],
+        0.3
+      ],
+      "holes": {
+        "30.0": 1
+      }
+    },
+    "edit": {
+      "from": 100,
+      "to": 120,
+      "bbox_sorted_mm": [
+        [
+          30,
+          30,
+          120
+        ],
+        0.3
+      ]
+    }
+  },
+  {
+    "id": "V2-ASK-pipe-bracket",
+    "set": "v2",
+    "level": 1,
+    "domain": "fasteners-fits",
+    "prompt": "Make a bracket to hold my water pipe on the wall.",
+    "should_ask": true
+  },
+  {
+    "id": "V2-ASK-lake-boat",
+    "set": "v2",
+    "level": 3,
+    "domain": "boat-building-lsam",
+    "prompt": "Design a boat for my lake.",
+    "should_ask": true
+  }
+]

@@ -1,0 +1,39 @@
+"""Install the FreeCADMCP add-on so the listener starts with FreeCAD.
+
+Run once from FreeCAD (File -> Open this file, then Execute macro), and again after
+updating or moving the project. Uninstall by deleting Mod/FreeCADMCP in FreeCAD's user folder.
+"""
+
+import os
+import shutil
+
+import FreeCAD as App
+
+here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else ""
+if not os.path.isfile(os.path.join(here, "freecad_listener.py")):
+    from PySide import QtGui
+
+    here = QtGui.QFileDialog.getExistingDirectory(None, "Select the shapebert-mcp project folder")
+
+listener = os.path.join(here, "freecad_listener.py")
+addon = os.path.join(here, "addon", "FreeCADMCP")
+target = os.path.join(App.getUserAppDataDir(), "Mod", "FreeCADMCP")
+if not os.path.isfile(listener) or not os.path.isdir(addon):
+    raise RuntimeError(f"Could not find freecad_listener.py and addon/FreeCADMCP in {here}")
+
+shutil.rmtree(target, ignore_errors=True)
+shutil.copytree(addon, target)
+# Copy the listener instead of pointing at it: a plugin update moves the project
+# folder, and the old one may be deleted. Re-run this macro after an update.
+installed = os.path.join(target, "freecad_listener.py")
+shutil.copy2(listener, installed)
+with open(os.path.join(target, "listener_path.txt"), "w", encoding="utf-8") as f:
+    f.write(installed)
+
+App.Console.PrintMessage(
+    f"[FreeCAD MCP] auto-start installed in {target}\n"
+    f"[FreeCAD MCP] it will run {listener} on every FreeCAD start.\n"
+    "[FreeCAD MCP] starting it now as well...\n"
+)
+with open(listener, encoding="utf-8") as f:
+    exec(compile(f.read(), listener, "exec"), {"__name__": "__main__", "__file__": listener})

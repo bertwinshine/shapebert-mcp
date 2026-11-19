@@ -1,0 +1,33 @@
+{
+  "name": "shapebert-mcp",
+  "displayName": "ShapeBert",
+  "version": "1.0.0",
+  "description": "AI CAD + FEA assistant for FreeCAD",
+  "author": {
+    "name": "Bertwin Kurisinkal Shine",
+    "url": "https://github.com/bertwinshine"
+  },
+  "homepage": "https://github.com/bertwinshine/shapebert-mcp",
+  "repository": "https://github.com/bertwinshine/shapebert-mcp",
+  "license": "Apache-2.0",
+  "keywords": [
+    "freecad",
+    "cad",
+    "parametric",
+    "gears",
+    "sheet-metal",
+    "engineering"
+  ],
+  "mcpServers": {
+    "shapebert": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "${CLAUDE_PLUGIN_ROOT}/server.py"
+      ]
+    }
+  }
+}

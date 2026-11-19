@@ -1,0 +1,17 @@
+{
+  "name": "bertwinshine",
+  "owner": {
+    "name": "Bertwin Kurisinkal Shine",
+    "url": "https://github.com/bertwinshine"
+  },
+  "metadata": {
+    "description": "Engineering plugins for FreeCAD by Bertwin Kurisinkal Shine."
+  },
+  "plugins": [
+    {
+      "name": "shapebert-mcp",
+      "source": "./",
+      "description": "AI CAD + FEA assistant for FreeCAD"
+    }
+  ]
+}

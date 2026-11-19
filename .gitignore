@@ -1,0 +1,42 @@
+# ---- Local config (your personal paths) ----
+.mcp.json
+.claude/settings.local.json
+
+# ---- FreeCAD backup files ----
+*.FCBak
+*.FCStd1
+*.FCStd2
+
+# ---- ANSYS Workbench temporary files ----
+*.lock
+# ...but the Python lock files are part of the project
+!requirements.lock
+!uv.lock
+cleanup-ansys-*.bat
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ---- Working folders (not part of the project) ----
+Things made/
+_thumbs_tmp/
+freecad-mcp-showcase/
+
+# ---- Windows / Office ----
+Thumbs.db
+desktop.ini
+~$*
+
+# ---- Tests / benchmark output ----
+.pytest_cache/
+.ruff_cache/
+bench/results/
+
+# ---- Personal-data patterns for ci/check_private.py (never commit) ----
+.private-patterns
+
+# ---- Own designs, examples and corrections (never public) ----
+knowledge-private/

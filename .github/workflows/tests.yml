@@ -1,0 +1,74 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+# Workflows only need to read the code; nothing here should be able to push.
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    # Fails the build if a password, key or token is committed by mistake.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Real user paths and e-mail addresses. Names are checked locally with
+      # .private-patterns, which is never committed.
+      - run: python ci/check_private.py
+
+  unit:
+    # Fast tests: protocol, listener logic, calculators, knowledge base, MCP server.
+    strategy:
+      fail-fast: false   # run every combination even if one fails
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install --require-hashes -r requirements.lock
+      - run: pip install pytest ruff
+      - run: ruff check .
+      - run: pytest -q
+
+  freecad:
+    # Live tests against real headless FreeCAD (conda-forge build).
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        freecad: ["1.1"]
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: conda-incubator/setup-miniconda@fc2d68f6413eb2d87b895e92f8584b5b94a10167 # v3.3.0
+        with:
+          miniforge-version: latest
+          python-version: "3.11"
+      - run: conda install -y -c conda-forge "freecad=${{ matrix.freecad }}"
+      # conda-forge FreeCAD has no FEM solver programs; the FEA tests need both. The
+      # tests would only skip without them, so check they are really on the PATH.
+      - name: install CalculiX and Gmsh
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y calculix-ccx gmsh
+          command -v ccx && command -v gmsh
+      - run: pip install -r requirements.txt pytest
+      - name: start headless listener
+        run: |
+          FREECAD_MCP_HEADLESS=1 nohup freecadcmd freecad_listener.py > listener.log 2>&1 &
+          for i in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/9876) 2>/dev/null && break; sleep 1; done
+      - run: pytest -q tests/integration
+      - if: failure()
+        run: cat listener.log
