@@ -2,7 +2,7 @@
  "tools": [
   {
    "name": "build_ring_gear",
-   "description": "Exact involute INTERNAL (ring) gear as ONE solid, axis +Z, bottom face at z=0,\n    centred on the origin. No add-on needed. Sizes in mm. With the same profile_shift\n    as its planets the centre distance stays m*(z_ring - z_planet)/2. Returns the object\n    name, validity, volume and tip/root diameters.",
+   "description": "Exact involute INTERNAL (ring) gear as ONE solid, axis +Z, bottom face at z=0,\ncentred on the origin. No add-on needed. Sizes in mm. With the same profile_shift\nas its planets the centre distance stays m*(z_ring - z_planet)/2. Returns the object\nname, validity, volume and tip/root diameters.",
    "inputSchema": {
     "properties": {
      "module": {
@@ -67,7 +67,7 @@
   },
   {
    "name": "build_sheet_profile",
-   "description": "Bent sheet-metal profile (L, U, Z, hat, channel ...) as ONE solid, with its flat\n    blank length. No add-on needed. flanges = OUTSIDE dimensions of each flange in\n    order; angles = one signed bend angle per bend in degrees (+ bends left, - bends\n    right, e.g. U = [90, 90], Z = [90, -90]). The cross-section lies in XY with the\n    first flange along +X from the origin; it is extruded `length` along +Z. Bends in\n    one plane only; parts folded in several directions (boxes, enclosures) need the\n    SheetMetal add-on. Returns the solid's name, volume, bbox, flat_length_mm and the\n    K-factor used (estimated from R/t when k_factor is not given).",
+   "description": "Bent sheet-metal profile (L, U, Z, hat, channel ...) as ONE solid, with its flat\nblank length. No add-on needed. flanges = OUTSIDE dimensions of each flange in\norder; angles = one signed bend angle per bend in degrees (+ bends left, - bends\nright, e.g. U = [90, 90], Z = [90, -90]). The cross-section lies in XY with the\nfirst flange along +X from the origin; it is extruded `length` along +Z. Bends in\none plane only; parts folded in several directions (boxes, enclosures) need the\nSheetMetal add-on. Returns the solid's name, volume, bbox, flat_length_mm and the\nK-factor used (estimated from R/t when k_factor is not given).",
    "inputSchema": {
     "properties": {
      "thickness": {
@@ -145,7 +145,7 @@
   },
   {
    "name": "build_spur_gear",
-   "description": "Exact involute spur gear as ONE solid, axis +Z, bottom face at z=0, centred on\n    the origin. Sizes in mm. keyway = [width, hub groove depth t2], as returned by\n    calc_shafts key. Returns the object name, validity, volume, pitch/tip/root/base\n    diameters and an undercut warning when the tooth count needs a profile shift.",
+   "description": "Exact involute spur gear as ONE solid, axis +Z, bottom face at z=0, centred on\nthe origin. Sizes in mm. keyway = [width, hub groove depth t2], as returned by\ncalc_shafts key. Returns the object name, validity, volume, pitch/tip/root/base\ndiameters and an undercut warning when the tooth count needs a profile shift.",
    "inputSchema": {
     "properties": {
      "module": {
@@ -225,7 +225,7 @@
   },
   {
    "name": "calc_boat",
-   "description": "Boat sizing (domain: boat-building-lsam). calc =\n    size_for_payload(payload_kg, light_mass_kg, cb=0.45, l_over_b=2.4, b_over_t=4,\n                     water='fresh', max_length_m, speed_knots) -> L, B, T\n    displacement(length_m, beam_m, draft_m, cb, water); froude(speed_knots, length_m)\n    stability_box(beam_m, draft_m, kg_m) -> KB, BM, GM (box approximation)\n    The `hydrostatics` tool does the same for a real hull model.",
+   "description": "Boat sizing (domain: boat-building-lsam). calc =\nsize_for_payload(payload_kg, light_mass_kg, cb=0.45, l_over_b=2.4, b_over_t=4,\n                 water='fresh', max_length_m, speed_knots) -> L, B, T\ndisplacement(length_m, beam_m, draft_m, cb, water); froude(speed_knots, length_m)\nstability_box(beam_m, draft_m, kg_m) -> KB, BM, GM (box approximation)\nThe `hydrostatics` tool does the same for a real hull model.",
    "inputSchema": {
     "properties": {
      "calc": {
@@ -266,7 +266,7 @@
   },
   {
    "name": "calc_fasteners",
-   "description": "Bolts, holes and fits (domain: fasteners-fits). calc =\n    bolt_hole(size='M6', fit='medium', tapped_material, head='socket'|'countersunk')\n        -> clearance/tap drill/counterbore/countersink/engagement/edge distance\n    fit(d_mm, fit_code='H7/g6') -> limits, min/max clearance, fit type\n    tolerance(d_mm, zone='H7')",
+   "description": "Bolts, holes and fits (domain: fasteners-fits). calc =\nbolt_hole(size='M6', fit='medium', tapped_material, head='socket'|'countersunk')\n    -> clearance/tap drill/counterbore/countersink/engagement/edge distance\nfit(d_mm, fit_code='H7/g6') -> limits, min/max clearance, fit type\ntolerance(d_mm, zone='H7')",
    "inputSchema": {
     "properties": {
      "calc": {
@@ -307,7 +307,7 @@
   },
   {
    "name": "calc_flanges",
-   "description": "Standard flange sizes from the EN 1092-1 table. calc =\n    en1092(dn=50, pn=16) -> outside diameter, bolt circle, holes, hole size, bolt\n    table(pn=16) -> all DN sizes for that pressure rating",
+   "description": "Standard flange sizes from the EN 1092-1 table. calc =\nen1092(dn=50, pn=16) -> outside diameter, bolt circle, holes, hole size, bolt\ntable(pn=16) -> all DN sizes for that pressure rating",
    "inputSchema": {
     "properties": {
      "calc": {
@@ -348,7 +348,7 @@
   },
   {
    "name": "calc_gears",
-   "description": "Exact gear maths (domain: gears-power-transmission). calc =\n    spur_pair(m, z1, z2|ratio, alpha_deg=20, face_width_mm, power_kw|torque_nm, rpm,\n              sigma_allow_mpa, x1, x2)  -> geometry, centre distance, contact ratio,\n              undercut, Lewis bending with pass/fail checks\n    planetary(z_sun, z_planet|z_ring, n_planets=3) -> ratio + coaxial/assembly/adjacency checks\n    solve_planetary(target_ratio, n_planets=3) -> tooth-count sets that pass all checks\n    torque_from_power(power_kw, rpm); nearest_module(m); z_min(alpha_deg)",
+   "description": "Exact gear maths (domain: gears-power-transmission). calc =\nspur_pair(m, z1, z2|ratio, alpha_deg=20, face_width_mm, power_kw|torque_nm, rpm,\n          sigma_allow_mpa, x1, x2)  -> geometry, centre distance, contact ratio,\n          undercut, Lewis bending with pass/fail checks\nplanetary(z_sun, z_planet|z_ring, n_planets=3) -> ratio + coaxial/assembly/adjacency checks\nsolve_planetary(target_ratio, n_planets=3) -> tooth-count sets that pass all checks\ntorque_from_power(power_kw, rpm); nearest_module(m); z_min(alpha_deg)",
    "inputSchema": {
     "properties": {
      "calc": {
@@ -389,7 +389,7 @@
   },
   {
    "name": "calc_shafts",
-   "description": "Shafts, keys and bearings (domain: shafts-bearings). calc =\n    shaft_diameter(torque_nm, bending_nm=0, tau_allow_mpa | material_yield_mpa, safety=2,\n                   keyway=True)\n    key(shaft_d_mm, torque_nm, hub_length_mm, p_allow_mpa=100) -> DIN 6885 key + pressure\n    bearing_life(c_kn, p_kn, rpm, ball=True, required_hours) -> L10, L10h, C required\n    equivalent_load(fr_kn, fa_kn, x, y, e)",
+   "description": "Shafts, keys and bearings (domain: shafts-bearings). calc =\nshaft_diameter(torque_nm, bending_nm=0, tau_allow_mpa | material_yield_mpa, safety=2,\n               keyway=True)\nkey(shaft_d_mm, torque_nm, hub_length_mm, p_allow_mpa=100) -> DIN 6885 key + pressure\nbearing_life(c_kn, p_kn, rpm, ball=True, required_hours) -> L10, L10h, C required\nequivalent_load(fr_kn, fa_kn, x, y, e)",
    "inputSchema": {
     "properties": {
      "calc": {
@@ -430,7 +430,7 @@
   },
   {
    "name": "calc_sheet_metal",
-   "description": "Exact sheet-metal maths (domain: sheet-metal). calc =\n    bend(t_mm, r_mm, angle_deg=90, k) -> BA, OSSB, BD\n    flat_length(outside_flanges_mm=[..], t_mm, r_mm, angles_deg, k) -> blank length\n    press_brake(t_mm, length_m, rm_mpa, v_die_mm) -> tonnage, R_i, min flange\n    k_from_test_bend(ba_mm, angle_deg, t_mm, r_mm); k_factor_estimate(r_mm, t_mm)",
+   "description": "Exact sheet-metal maths (domain: sheet-metal). calc =\nbend(t_mm, r_mm, angle_deg=90, k) -> BA, OSSB, BD\nflat_length(outside_flanges_mm=[..], t_mm, r_mm, angles_deg, k) -> blank length\npress_brake(t_mm, length_m, rm_mpa, v_die_mm) -> tonnage, R_i, min flange\nk_from_test_bend(ba_mm, angle_deg, t_mm, r_mm); k_factor_estimate(r_mm, t_mm)",
    "inputSchema": {
     "properties": {
      "calc": {
@@ -471,7 +471,7 @@
   },
   {
    "name": "calc_weld",
-   "description": "Weld and profile maths (domain: weldments). calc =\n    fillet_weld(a_mm, length_mm, grade='S355', force_kn, plate_t_mm) -> capacity, checks\n    required_throat(force_kn, length_mm, grade) -> a needed\n    tube_mass(outer_mm, wall_mm, length_mm, shape='SHS'|'RHS'|'CHS', outer_b_mm)\n    leg_to_throat(z_mm); throat_to_leg(a_mm)",
+   "description": "Weld and profile maths (domain: weldments). calc =\nfillet_weld(a_mm, length_mm, grade='S355', force_kn, plate_t_mm) -> capacity, checks\nrequired_throat(force_kn, length_mm, grade) -> a needed\ntube_mass(outer_mm, wall_mm, length_mm, shape='SHS'|'RHS'|'CHS', outer_b_mm)\nleg_to_throat(z_mm); throat_to_leg(a_mm)",
    "inputSchema": {
     "properties": {
      "calc": {
@@ -512,7 +512,7 @@
   },
   {
    "name": "check_geometry",
-   "description": "Validity check of one object (by Name or Label): isValid, boolean-op check,\n    watertight shells, number of solids, tiny edges. Returns valid, solid/shell/face\n    counts and a list of issues found.",
+   "description": "Validity check of one object (by Name or Label): isValid, boolean-op check,\nwatertight shells, number of solids, tiny edges. Returns valid, solid/shell/face\ncounts and a list of issues found.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -547,7 +547,7 @@
   },
   {
    "name": "check_model_structure",
-   "description": "How editable the active document is (0-100): is there a Params sheet and do the\n    features use it, are sketches on base planes, are there static shape copies,\n    recompute errors or leftover shapes. Returns the score and the issues found.",
+   "description": "How editable the active document is (0-100): is there a Params sheet and do the\nfeatures use it, are sketches on base planes, are there static shape copies,\nrecompute errors or leftover shapes. Returns the score and the issues found.",
    "inputSchema": {
     "properties": {},
     "title": "check_model_structureArguments",
@@ -574,7 +574,7 @@
   },
   {
    "name": "check_printability",
-   "description": "Additive-manufacturing check, print direction +Z. process = 'fdm' or 'lsam'.\n    Reports unsupported overhang area/angle, sampled wall thickness, thin-wall share and\n    build-volume fit. Defaults: fdm overhang 45 deg, min wall 1.2 mm; lsam overhang 45 deg,\n    min wall = 2 x bead_width_mm (no wall check for lsam without a bead width).",
+   "description": "Additive-manufacturing check, print direction +Z. process = 'fdm' or 'lsam'.\nReports unsupported overhang area/angle, sampled wall thickness, thin-wall share and\nbuild-volume fit. Defaults: fdm overhang 45 deg, min wall 1.2 mm; lsam overhang 45 deg,\nmin wall = 2 x bead_width_mm (no wall check for lsam without a bead width).",
    "inputSchema": {
     "properties": {
      "name": {
@@ -658,7 +658,7 @@
   },
   {
    "name": "compare_shapes",
-   "description": "Compare two shapes (object names, or a file in the work folder for the reference).\n    Returns IoU = Vol(common)/Vol(fuse) (1.0 = identical), volume error %, bbox sizes and\n    centre-of-mass offset.",
+   "description": "Compare two shapes (object names, or a file in the work folder for the reference).\nReturns IoU = Vol(common)/Vol(fuse) (1.0 = identical), volume error %, bbox sizes and\ncentre-of-mass offset.",
    "inputSchema": {
     "properties": {
      "candidate": {
@@ -793,7 +793,7 @@
   },
   {
    "name": "doctor",
-   "description": "Setup report in one call. Returns whether FreeCAD is reachable and its listener\n    version, free-form code on or off, work folder, knowledge folders, which optional\n    add-ons (FCGear, SheetMetal, Fasteners) are installed with what each adds and its\n    install steps, and whether the FEM programs (CalculiX, Gmsh) are found.",
+   "description": "Setup report in one call. Returns whether FreeCAD is reachable and its listener\nversion, free-form code on or off, work folder, knowledge folders, which optional\nadd-ons (FCGear, SheetMetal, Fasteners) are installed with what each adds and its\ninstall steps, and whether the FEM programs (CalculiX, Gmsh) are found.",
    "inputSchema": {
     "properties": {},
     "title": "doctorArguments",
@@ -820,7 +820,7 @@
   },
   {
    "name": "export_model",
-   "description": "Export objects (default: all top-level shapes) by file extension:\n    .step/.stp, .iges, .brep, .stl, .3mf, .obj. Relative paths go into the work folder;\n    paths outside it are refused.",
+   "description": "Export objects (default: all top-level shapes) by file extension:\n.step/.stp, .iges, .brep, .stl, .3mf, .obj. Relative paths go into the work folder;\npaths outside it are refused.",
    "inputSchema": {
     "properties": {
      "path": {
@@ -870,7 +870,7 @@
   },
   {
    "name": "fea_results",
-   "description": "Results of a solved analysis, units mm / N / MPa / °C / W / Hz.\n    Static: max von Mises stress and where, max displacement and where, the reaction\n    force sum at the fixed faces (equilibrium_ok: it balances the applied loads),\n    the mesh size and the safety factor against yield.\n    Modal: each mode's natural frequency, its peak motion direction and place, and the\n    part mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).\n    Thermal: min/max temperature and where, heat flow into the part at each\n    fixed-temperature face (heat_balance_ok: in = out).\n    Thermal transient: as thermal at the last time step (time_s), and each probe also\n    gets history_s_c, its temperature [time s, °C] at every step.\n    Thermomechanical: as static, plus the temperature range.\n    Buckling: load factor and critical load per mode; lowest_load_factor below ~1 means\n    the applied load would buckle the ideal part (real parts buckle lower, see note).\n    probes: points [x, y, z] in mm; returns the values at the nearest mesh node\n    (temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.\n    That node can be up to one mesh size away; node_at_mm gives its position.\n    Every reply has a `note` on the limits of this simplified linear check.",
+   "description": "Results of a solved analysis, units mm / N / MPa / °C / W / Hz.\nStatic: max von Mises stress and where, max displacement and where, the reaction\nforce sum at the fixed faces (equilibrium_ok: it balances the applied loads),\nthe mesh size and the safety factor against yield.\nModal: each mode's natural frequency, its peak motion direction and place, and the\npart mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).\nThermal: min/max temperature and where, heat flow into the part at each\nfixed-temperature face (heat_balance_ok: in = out).\nThermal transient: as thermal at the last time step (time_s), and each probe also\ngets history_s_c, its temperature [time s, °C] at every step.\nThermomechanical: as static, plus the temperature range.\nBuckling: load factor and critical load per mode; lowest_load_factor below ~1 means\nthe applied load would buckle the ideal part (real parts buckle lower, see note).\nprobes: points [x, y, z] in mm; returns the values at the nearest mesh node\n(temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.\nThat node can be up to one mesh size away; node_at_mm gives its position.\nEvery reply has a `note` on the limits of this simplified linear check.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -921,7 +921,7 @@
   },
   {
    "name": "fea_run",
-   "description": "Mesh the part of a fea_setup analysis with Gmsh and solve it with CalculiX.\n    Solver files go to the work folder (fea/<name>). Takes seconds to minutes; a run\n    longer than timeout_s returns still_running and a job_id for get_job_result.\n    Returns node and element counts, mesh size and mesh/solve times; fea_results\n    reads the results.",
+   "description": "Mesh the part of a fea_setup analysis with Gmsh and solve it with CalculiX.\nSolver files go to the work folder (fea/<name>). Takes seconds to minutes; a run\nlonger than timeout_s returns still_running and a job_id for get_job_result.\nReturns node and element counts, mesh size and mesh/solve times; fea_results\nreads the results.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -959,7 +959,7 @@
   },
   {
    "name": "fea_setup",
-   "description": "Set up a CalculiX analysis of one solid part. Units: mm, N, MPa, °C, W, Hz.\n    Replaces an earlier analysis with the same name. Needs CalculiX and Gmsh (doctor).\n\n    analysis_type and what it needs:\n      \"static\"         fixed_faces + loads -> stress, displacement, reactions, safety factor\n      \"modal\"          fixed_faces (no loads) -> first `modes` natural frequencies\n      \"thermal_steady\" temperatures (no fixed_faces, no loads) -> temperature field and\n                       heat flow at each fixed-temperature face; other faces are insulated\n      \"thermomechanical\" supports + temperatures (+ optional loads) -> thermal stress and\n                       expansion; the part starts stress-free at initial_temperature_c.\n                       For a uniform temperature change give every face that temperature.\n      \"buckling\"       supports + loads -> first `modes` buckling load factors; factor x\n                       applied load = ideal elastic buckling load (use 1 N to read it directly)\n      \"thermal_transient\" temperatures + time_end_s + time_step_s -> temperatures over time;\n                       the part starts at initial_temperature_c, the face temperatures\n                       switch on at time 0, other faces are insulated. At most 500 steps.\n                       Accuracy over time is first order: the error shrinks with the\n                       step. If early values matter, run again with half the step and\n                       compare.\n    Inputs a type does not use are refused, so nothing is silently ignored.\n    Supports are fixed_faces and/or sliding_faces (static, modal, thermomechanical).\n\n    material: one of steel (S235), aluminium (6061-T6), PETG, PLA; others are refused.\n    The reply lists the values used.\n    fixed_faces: faces held completely still, e.g. [\"Face1\"]. This also blocks thermal\n    expansion within the face.\n    sliding_faces: flat faces facing along x, y or z that may slide in their own plane\n    but not move along their normal (a symmetry plane or a frictionless wall). Three of\n    them facing x, y and z hold a part without restraining its thermal expansion.\n    loads: list of\n      {\"type\": \"force\", \"faces\": [\"Face2\"], \"value_n\": 100, \"direction\": [0, 0, -1]}\n        (total force in N spread over the faces, direction is any vector), or\n      {\"type\": \"pressure\", \"faces\": [\"Face6\"], \"value_mpa\": 0.1}\n        (positive presses on the face, negative pulls).\n    temperatures: list of {\"faces\": [\"Face1\"], \"temperature_c\": 100}.\n    initial_temperature_c: start and reference temperature (default 20 °C).\n    mesh_size_mm: largest element edge; about a third of the thinnest wall or less gives\n    usable results (3 mm for a 10 mm bar). Required, > 0.\n    Returns each named face's centre, normal and area, the material values and units.",
+   "description": "Set up a CalculiX analysis of one solid part. Units: mm, N, MPa, °C, W, Hz.\nReplaces an earlier analysis with the same name. Needs CalculiX and Gmsh (doctor).\n\nanalysis_type and what it needs:\n  \"static\"         fixed_faces + loads -> stress, displacement, reactions, safety factor\n  \"modal\"          fixed_faces (no loads) -> first `modes` natural frequencies\n  \"thermal_steady\" temperatures (no fixed_faces, no loads) -> temperature field and\n                   heat flow at each fixed-temperature face; other faces are insulated\n  \"thermomechanical\" supports + temperatures (+ optional loads) -> thermal stress and\n                   expansion; the part starts stress-free at initial_temperature_c.\n                   For a uniform temperature change give every face that temperature.\n  \"buckling\"       supports + loads -> first `modes` buckling load factors; factor x\n                   applied load = ideal elastic buckling load (use 1 N to read it directly)\n  \"thermal_transient\" temperatures + time_end_s + time_step_s -> temperatures over time;\n                   the part starts at initial_temperature_c, the face temperatures\n                   switch on at time 0, other faces are insulated. At most 500 steps.\n                   Accuracy over time is first order: the error shrinks with the\n                   step. If early values matter, run again with half the step and\n                   compare.\nInputs a type does not use are refused, so nothing is silently ignored.\nSupports are fixed_faces and/or sliding_faces (static, modal, thermomechanical).\n\nmaterial: one of steel (S235), aluminium (6061-T6), PETG, PLA; others are refused.\nThe reply lists the values used.\nfixed_faces: faces held completely still, e.g. [\"Face1\"]. This also blocks thermal\nexpansion within the face.\nsliding_faces: flat faces facing along x, y or z that may slide in their own plane\nbut not move along their normal (a symmetry plane or a frictionless wall). Three of\nthem facing x, y and z hold a part without restraining its thermal expansion.\nloads: list of\n  {\"type\": \"force\", \"faces\": [\"Face2\"], \"value_n\": 100, \"direction\": [0, 0, -1]}\n    (total force in N spread over the faces, direction is any vector), or\n  {\"type\": \"pressure\", \"faces\": [\"Face6\"], \"value_mpa\": 0.1}\n    (positive presses on the face, negative pulls).\ntemperatures: list of {\"faces\": [\"Face1\"], \"temperature_c\": 100}.\ninitial_temperature_c: start and reference temperature (default 20 °C).\nmesh_size_mm: largest element edge; about a third of the thinnest wall or less gives\nusable results (3 mm for a 10 mm bar). Required, > 0.\nReturns each named face's centre, normal and area, the material values and units.",
    "inputSchema": {
     "properties": {
      "part": {
@@ -1110,7 +1110,7 @@
   },
   {
    "name": "get_document_info",
-   "description": "List objects in the active document: name, type, valid, solids, volume, size,\n    and whether it is top-level (not consumed by a boolean/feature).",
+   "description": "List objects in the active document: name, type, valid, solids, volume, size,\nand whether it is top-level (not consumed by a boolean/feature).",
    "inputSchema": {
     "properties": {},
     "title": "get_document_infoArguments",
@@ -1137,7 +1137,7 @@
   },
   {
    "name": "get_job_result",
-   "description": "Report of a run_freecad_code job that outlived its timeout.\n\n    Waits up to wait_s for the job to finish. While it is still running the reply\n    has `pending`. Pass stdout_offset (0, 20000, 40000, ...) to page through long\n    output; `more` says whether another page follows.\n    ",
+   "description": "Report of a run_freecad_code job that outlived its timeout.\n\nWaits up to wait_s for the job to finish. While it is still running the reply\nhas `pending`. Pass stdout_offset (0, 20000, 40000, ...) to page through long\noutput; `more` says whether another page follows.",
    "inputSchema": {
     "properties": {
      "job_id": {
@@ -1189,7 +1189,7 @@
   },
   {
    "name": "get_status",
-   "description": "Listener health without touching FreeCAD's GUI thread. Returns queue length, busy\n    job and how long it has run, recent jobs, open documents, FreeCAD version, and the\n    server's free-form code setting and work folder.",
+   "description": "Listener health without touching FreeCAD's GUI thread. Returns queue length, busy\njob and how long it has run, recent jobs, open documents, FreeCAD version, and the\nserver's free-form code setting and work folder.",
    "inputSchema": {
     "properties": {},
     "title": "get_statusArguments",
@@ -1216,7 +1216,7 @@
   },
   {
    "name": "get_view",
-   "description": "PNG screenshot of the 3D view, fitted to the model. view = isometric, front,\n    top, right, left, rear, bottom; width and height in pixels. Needs the FreeCAD GUI\n    (not headless).",
+   "description": "PNG screenshot of the 3D view, fitted to the model. view = isometric, front,\ntop, right, left, rear, bottom; width and height in pixels. Needs the FreeCAD GUI\n(not headless).",
    "inputSchema": {
     "properties": {
      "view": {
@@ -1246,7 +1246,7 @@
   },
   {
    "name": "hydrostatics",
-   "description": "Float a hull model (Z up, length along X or Y). Give the loaded mass_kg to find the\n    draft, or draft_mm to find the displacement. Works on thin-walled open hulls (counts\n    the interior as buoyant). Returns draft, freeboard, displacement, reserve buoyancy,\n    waterplane area, Cb, Cwp, KB, BM, and GM if the centre of gravity height kg_mm is given.",
+   "description": "Float a hull model (Z up, length along X or Y). Give the loaded mass_kg to find the\ndraft, or draft_mm to find the displacement. Works on thin-walled open hulls (counts\nthe interior as buoyant). Returns draft, freeboard, displacement, reserve buoyancy,\nwaterplane area, Cb, Cwp, KB, BM, and GM if the centre of gravity height kg_mm is given.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -1392,7 +1392,7 @@
   },
   {
    "name": "list_knowledge",
-   "description": "Catalogue of the knowledge base: domains (with status), saved examples, and\n    how many corrections have been logged per domain.",
+   "description": "Catalogue of the knowledge base: domains (with status), saved examples, and\nhow many corrections have been logged per domain.",
    "inputSchema": {
     "properties": {},
     "title": "list_knowledgeArguments",
@@ -1419,7 +1419,7 @@
   },
   {
    "name": "log_correction",
-   "description": "Record a user correction (what the assistant got wrong and the fix). These logs\n    show which domains need better rules and feed the benchmark.",
+   "description": "Record a user correction (what the assistant got wrong and the fix). These logs\nshow which domains need better rules and feed the benchmark.",
    "inputSchema": {
     "properties": {
      "prompt": {
@@ -1474,7 +1474,7 @@
   },
   {
    "name": "match_domain",
-   "description": "Match a request to the expert domain file(s). Returns scored matches, advice\n    starting with single / ambiguous / none, and the two closest saved examples.",
+   "description": "Match a request to the expert domain file(s). Returns scored matches, advice\nstarting with single / ambiguous / none, and the two closest saved examples.",
    "inputSchema": {
     "properties": {
      "request": {
@@ -1509,7 +1509,7 @@
   },
   {
    "name": "measure",
-   "description": "Volume, area, bounding box, centre of mass, face/edge counts, cylindrical faces\n    grouped by diameter (to verify holes), and mass if a density is given\n    (steel 7850, aluminium 2700, PLA 1240, PETG 1270, CF-PETG ~1300 kg/m^3).",
+   "description": "Volume, area, bounding box, centre of mass, face/edge counts, cylindrical faces\ngrouped by diameter (to verify holes), and mass if a density is given\n(steel 7850, aluminium 2700, PLA 1240, PETG 1270, CF-PETG ~1300 kg/m^3).",
    "inputSchema": {
     "properties": {
      "name": {
@@ -1583,7 +1583,7 @@
   },
   {
    "name": "read_knowledge",
-   "description": "Read a knowledge file, e.g. 'conventions.md', 'domains/sheet-metal.md',\n    'examples/plate_with_holes.md'.",
+   "description": "Read a knowledge file, e.g. 'conventions.md', 'domains/sheet-metal.md',\n'examples/plate_with_holes.md'.",
    "inputSchema": {
     "properties": {
      "path": {
@@ -1618,7 +1618,7 @@
   },
   {
    "name": "run_freecad_code",
-   "description": "Run FreeCAD Python inside the live session (fresh namespace each call).\n\n    Assign a value to `result` to return it (str, number, list or dict).\n    Returns ok, result, error traceback, captured stdout, `new_objects` (name, valid,\n    volume, bbox for everything created) and `warnings` (invalid shapes/objects).\n    If the code raises and rollback_on_error is true, objects it created are removed.\n    `FreeCAD`/`App` are pre-imported; import Part, Sketcher, etc. yourself.\n    Write `import FreeCAD as App` if you import it; `from FreeCAD import App` fails.\n\n    If the job is still running when timeout_s runs out, the reply has\n    `still_running` and a `job_id`; get_job_result returns the report once it ends.\n    Long stdout is cut to its end; get_job_result pages it.\n\n    Example:\n        import Part\n        doc = App.ActiveDocument or App.newDocument(\"Part1\")\n        b = doc.addObject('Part::Box', 'Box'); b.Length, b.Width, b.Height = 20, 10, 5\n        doc.recompute()\n        result = {\"volume\": b.Shape.Volume}\n\n    Off unless FREECAD_MCP_ALLOW_CODE=1 is set for this server. Code that imports\n    os, subprocess, socket and similar modules, or calls open/eval/exec, is refused;\n    import_model, export_model and save_document handle files.\n    ",
+   "description": "Run FreeCAD Python inside the live session (fresh namespace each call).\n\nAssign a value to `result` to return it (str, number, list or dict).\nReturns ok, result, error traceback, captured stdout, `new_objects` (name, valid,\nvolume, bbox for everything created) and `warnings` (invalid shapes/objects).\nIf the code raises and rollback_on_error is true, objects it created are removed.\n`FreeCAD`/`App` are pre-imported; import Part, Sketcher, etc. yourself.\nWrite `import FreeCAD as App` if you import it; `from FreeCAD import App` fails.\n\nIf the job is still running when timeout_s runs out, the reply has\n`still_running` and a `job_id`; get_job_result returns the report once it ends.\nLong stdout is cut to its end; get_job_result pages it.\n\nExample:\n    import Part\n    doc = App.ActiveDocument or App.newDocument(\"Part1\")\n    b = doc.addObject('Part::Box', 'Box'); b.Length, b.Width, b.Height = 20, 10, 5\n    doc.recompute()\n    result = {\"volume\": b.Shape.Volume}\n\nOff unless FREECAD_MCP_ALLOW_CODE=1 is set for this server. Code that imports\nos, subprocess, socket and similar modules, or calls open/eval/exec, is refused;\nimport_model, export_model and save_document handle files.",
    "inputSchema": {
     "properties": {
      "code": {
@@ -1703,7 +1703,7 @@
   },
   {
    "name": "save_example",
-   "description": "Save a user-approved part as a reusable example in the knowledge base.\n    With verify_in_freecad the code is first run in a temporary document; it is saved\n    only if it produces valid solids, and the measured volume/bbox are recorded.\n    Code that uses os, subprocess, open, eval and similar is refused. An existing\n    example with the same slug is replaced only with overwrite=True.",
+   "description": "Save a user-approved part as a reusable example in the knowledge base.\nWith verify_in_freecad the code is first run in a temporary document; it is saved\nonly if it produces valid solids, and the measured volume/bbox are recorded.\nCode that uses os, subprocess, open, eval and similar is refused. An existing\nexample with the same slug is replaced only with overwrite=True.",
    "inputSchema": {
     "properties": {
      "title": {
@@ -1805,7 +1805,7 @@
   },
   {
    "name": "search_examples",
-   "description": "Find the k saved examples most similar to a request. Returns file name, title,\n    prompt, domain and similarity score for each; read_knowledge opens one.",
+   "description": "Find the k saved examples most similar to a request. Returns file name, title,\nprompt, domain and similarity score for each; read_knowledge opens one.",
    "inputSchema": {
     "properties": {
      "query": {
@@ -1845,7 +1845,7 @@
   },
   {
    "name": "set_parameters",
-   "description": "Create/update spreadsheet parameters with aliases, e.g.\n    {\"PlateL\": \"120 mm\", \"Thk\": \"4 mm\", \"NHoles\": 6}. Give lengths and angles as strings\n    WITH units (\"120 mm\", \"30 deg\") so expressions like Params.PlateL + 2 mm work; plain\n    numbers are unitless and suit counts and factors.\n    Geometry bound to an alias with an expression, e.g.\n    box.setExpression('Length', 'Params.PlateL'), rebuilds when the value changes.\n    Returns objects that broke after the recompute, and any alias names FreeCAD\n    refused (single letters like W or V are unit names).",
+   "description": "Create/update spreadsheet parameters with aliases, e.g.\n{\"PlateL\": \"120 mm\", \"Thk\": \"4 mm\", \"NHoles\": 6}. Give lengths and angles as strings\nWITH units (\"120 mm\", \"30 deg\") so expressions like Params.PlateL + 2 mm work; plain\nnumbers are unitless and suit counts and factors.\nGeometry bound to an alias with an expression, e.g.\nbox.setExpression('Length', 'Params.PlateL'), rebuilds when the value changes.\nReturns objects that broke after the recompute, and any alias names FreeCAD\nrefused (single letters like W or V are unit names).",
    "inputSchema": {
     "properties": {
      "params": {

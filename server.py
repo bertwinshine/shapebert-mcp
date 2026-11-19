@@ -209,7 +209,8 @@ def tool(data: str | None = None):
                 result = _as_data(data, result)
             return _with_repeat_note(result, note)
 
-        mcp.tool(annotations=_annotations(fn.__name__))(wrapper)
+        # Python 3.13 dedents docstrings itself; cleandoc sends the same text on every version.
+        mcp.tool(description=inspect.cleandoc(fn.__doc__), annotations=_annotations(fn.__name__))(wrapper)
         return wrapper
 
     return register
