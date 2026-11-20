@@ -22,6 +22,7 @@ sys.path.insert(0, str(HERE))  # Claude starts us by absolute path from any cwd
 from cadkit import (  # noqa: E402
     PROTOCOL_VERSION,
     __version__,
+    build_checks,
     fea,
     protocol,
     safety,  # noqa: E402
@@ -560,6 +561,175 @@ def set_parameters(params: dict, sheet: str = "Params") -> str:
     return _json(_fc("set_parameters", params=params, sheet=sheet))
 
 
+def _checked(build):
+    """Run `build` (argument checks, then one fc_tools call); a bad argument is refused."""
+    try:
+        return _json(build())
+    except (ValueError, TypeError) as e:
+        return _refused(str(e))
+
+
+@tool()
+def set_placement(
+    name: str,
+    position: list[float] | None = None,
+    rotation_axis: list[float] | None = None,
+    rotation_deg: float = 0.0,
+) -> str:
+    """Move and turn an existing object (by Name or Label). position = [x, y, z] mm of
+    its placement origin (default [0, 0, 0]); then a turn of rotation_deg about
+    rotation_axis (default [0, 0, 1]) through that point. Sets the placement as a whole,
+    not relative to the current one. To tie a position to Params, use bind_parameters
+    on Placement.Base.x / .y / .z. Returns the new placement."""
+    return _checked(
+        lambda: _fc(
+            "set_placement",
+            name=build_checks.object_ref(name),
+            position=build_checks.vector(position, "position", [0.0, 0.0, 0.0]),
+            rotation_axis=build_checks.vector(rotation_axis, "rotation_axis", [0.0, 0.0, 1.0], nonzero=True),
+            rotation_deg=build_checks.number(rotation_deg, "rotation_deg"),
+        )
+    )
+
+
+@tool()
+def bind_parameters(name: str, expressions: dict[str, str | float]) -> str:
+    """Drive properties of an existing object from the Params spreadsheet, so the part
+    rebuilds when a value changes. expressions maps a property path to an expression,
+    e.g. {"Radius": "Params.BoreD / 2", "Height": "Params.Thk",
+    "Placement.Base.x": "Params.PCD / 2", "NumberPolar": "Params.NHoles"}.
+    An expression may use Sheet.Alias or Object.Property references, numbers with
+    units (2 mm, 30 deg), + - * / and brackets; function calls and text are refused.
+    Only length, angle, number, vector and placement properties can be bound.
+    Returns the values after the recompute; if anything fails, the object keeps its
+    old expressions."""
+    return _checked(
+        lambda: _fc(
+            "bind_parameters",
+            name=build_checks.object_ref(name),
+            expressions=build_checks.expressions(expressions),
+        )
+    )
+
+
+@tool()
+def boolean(
+    operation: str, base: str, tools: list[str], name: str | None = None, label: str | None = None
+) -> str:
+    """Parametric boolean of existing objects (by Name or Label). operation =
+    cut (base minus every tool), fuse (base plus the tools) or common (the space all
+    of them share). Makes a Part::Cut / Part::MultiFuse / Part::MultiCommon that
+    follows later changes to its inputs (several cut tools are fused first), and hides
+    the inputs. Give label="Result" for the final feature. Returns the new object's
+    name, label, validity, solid count, volume and size."""
+
+    def build():
+        if operation not in build_checks.BOOLEAN_OPERATIONS:
+            raise ValueError(f"operation must be one of {sorted(build_checks.BOOLEAN_OPERATIONS)}")
+        if not isinstance(tools, list) or not 1 <= len(tools) <= 50:
+            raise ValueError("tools must list 1 to 50 objects")
+        refs = [build_checks.object_ref(base, "base")] + [build_checks.object_ref(t, "tool") for t in tools]
+        if len(set(refs)) != len(refs):
+            raise ValueError("base and tools must all be different objects")
+        return _fc(
+            "boolean",
+            operation=operation,
+            base=refs[0],
+            tools=refs[1:],
+            name=build_checks.new_name(name, operation.capitalize()),
+            label=build_checks.label(label),
+        )
+
+    return _checked(build)
+
+
+@tool()
+def pattern_polar(
+    name: str,
+    count: int,
+    angle_deg: float = 360.0,
+    axis: list[float] | None = None,
+    center: list[float] | None = None,
+    label: str | None = None,
+) -> str:
+    """Parametric polar pattern (Draft polar array) of an existing object: count
+    copies, the original included, spread evenly over angle_deg about axis (default
+    [0, 0, 1]) through center (default the origin). With 360 deg they are 360/count
+    apart. Bind the count with bind_parameters(<array>, {"NumberPolar": "Params.NHoles"})
+    and use the array as a boolean tool. Returns the array's name, solid count,
+    volume and size."""
+    return _checked(
+        lambda: _fc(
+            "pattern_polar",
+            name=build_checks.object_ref(name),
+            count=build_checks.count(count),
+            angle_deg=build_checks.number(angle_deg, "angle_deg", positive=True),
+            axis=build_checks.vector(axis, "axis", [0.0, 0.0, 1.0], nonzero=True),
+            center=build_checks.vector(center, "center", [0.0, 0.0, 0.0]),
+            label=build_checks.label(label),
+        )
+    )
+
+
+@tool()
+def pattern_linear(
+    name: str, count: int, spacing: float, direction: list[float] | None = None, label: str | None = None
+) -> str:
+    """Parametric linear pattern (Draft ortho array) of an existing object: count
+    copies, the original included, spacing mm apart along direction (default
+    [1, 0, 0]). Bind the count with {"NumberX": "Params.NSlots"}; the step is the
+    vector IntervalX (bind IntervalX.x etc.). Use the array as a boolean tool.
+    Returns the array's name, solid count, volume and size."""
+    return _checked(
+        lambda: _fc(
+            "pattern_linear",
+            name=build_checks.object_ref(name),
+            count=build_checks.count(count),
+            spacing=build_checks.number(spacing, "spacing", positive=True),
+            direction=build_checks.vector(direction, "direction", [1.0, 0.0, 0.0], nonzero=True),
+            label=build_checks.label(label),
+        )
+    )
+
+
+@tool()
+def fillet_edges(name: str, radius: float, edges: str | list[str] = "all", label: str | None = None) -> str:
+    """Parametric fillet (Part::Fillet) of radius mm on edges of an existing solid.
+    edges = "all", "top" (edges in the top plane: outline and hole rims), "bottom",
+    "vertical" (edges parallel to Z) or a list of names like ["Edge1", "Edge5"]; seam
+    edges of round faces are skipped. Edges are stored by number, so look at the part
+    again after a Params change that alters its shape. Returns the new object's name,
+    label, validity, volume, size and the edges used."""
+    return _checked(
+        lambda: _fc(
+            "round_edges",
+            kind="Fillet",
+            name=build_checks.object_ref(name),
+            size=build_checks.number(radius, "radius", positive=True),
+            edges=build_checks.edges(edges),
+            label=build_checks.label(label),
+        )
+    )
+
+
+@tool()
+def chamfer_edges(name: str, size: float, edges: str | list[str] = "all", label: str | None = None) -> str:
+    """Parametric chamfer (Part::Chamfer) of size mm on edges of an existing solid.
+    edges are chosen as in fillet_edges: "all", "top", "bottom", "vertical" or a list
+    like ["Edge1", "Edge5"]. Returns the new object's name, label, validity, volume,
+    size and the edges used."""
+    return _checked(
+        lambda: _fc(
+            "round_edges",
+            kind="Chamfer",
+            name=build_checks.object_ref(name),
+            size=build_checks.number(size, "size", positive=True),
+            edges=build_checks.edges(edges),
+            label=build_checks.label(label),
+        )
+    )
+
+
 @tool()
 def hydrostatics(
     name: str,
@@ -1081,8 +1251,10 @@ def design_part(description: str) -> str:
         f"Design this part in FreeCAD: {description}\n\n"
         "Follow the working rules: 1) match_domain and read the domain file + conventions; "
         "2) search_examples and adapt the closest one; 3) ask for any missing CRITICAL value; "
-        "4) run the domain calculators (calc_*) before choosing dimensions; 5) build with "
-        "run_freecad_code using a Params spreadsheet; 6) check_geometry, measure and get_view; "
+        "4) run the domain calculators (calc_*) before choosing dimensions; 5) build from a "
+        "Params spreadsheet with the structured tools (create_box, create_cylinder, set_placement, "
+        "bind_parameters, pattern_polar, pattern_linear, boolean, fillet_edges, chamfer_edges), "
+        "or run_freecad_code if it is switched on; 6) check_geometry, measure and get_view; "
         "7) run the domain checks (hydrostatics / check_printability / calc checks); "
         "8) report every value used, tagged given/default/calculated."
     )

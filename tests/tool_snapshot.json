@@ -1,6 +1,128 @@
 {
  "tools": [
   {
+   "name": "bind_parameters",
+   "description": "Drive properties of an existing object from the Params spreadsheet, so the part\nrebuilds when a value changes. expressions maps a property path to an expression,\ne.g. {\"Radius\": \"Params.BoreD / 2\", \"Height\": \"Params.Thk\",\n\"Placement.Base.x\": \"Params.PCD / 2\", \"NumberPolar\": \"Params.NHoles\"}.\nAn expression may use Sheet.Alias or Object.Property references, numbers with\nunits (2 mm, 30 deg), + - * / and brackets; function calls and text are refused.\nOnly length, angle, number, vector and placement properties can be bound.\nReturns the values after the recompute; if anything fails, the object keeps its\nold expressions.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "expressions": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "number"
+        }
+       ]
+      },
+      "title": "Expressions",
+      "type": "object"
+     }
+    },
+    "required": [
+     "name",
+     "expressions"
+    ],
+    "title": "bind_parametersArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "bind_parametersOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "boolean",
+   "description": "Parametric boolean of existing objects (by Name or Label). operation =\ncut (base minus every tool), fuse (base plus the tools) or common (the space all\nof them share). Makes a Part::Cut / Part::MultiFuse / Part::MultiCommon that\nfollows later changes to its inputs (several cut tools are fused first), and hides\nthe inputs. Give label=\"Result\" for the final feature. Returns the new object's\nname, label, validity, solid count, volume and size.",
+   "inputSchema": {
+    "properties": {
+     "operation": {
+      "title": "Operation",
+      "type": "string"
+     },
+     "base": {
+      "title": "Base",
+      "type": "string"
+     },
+     "tools": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Tools",
+      "type": "array"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Name"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Label"
+     }
+    },
+    "required": [
+     "operation",
+     "base",
+     "tools"
+    ],
+    "title": "booleanArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "booleanOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "build_ring_gear",
    "description": "Exact involute INTERNAL (ring) gear as ONE solid, axis +Z, bottom face at z=0,\ncentred on the origin. No add-on needed. Sizes in mm. With the same profile_shift\nas its planets the centre distance stays m*(z_ring - z_planet)/2. Returns the object\nname, validity, volume and tip/root diameters.",
    "inputSchema": {
@@ -506,6 +628,73 @@
    },
    "annotations": {
     "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "chamfer_edges",
+   "description": "Parametric chamfer (Part::Chamfer) of size mm on edges of an existing solid.\nedges are chosen as in fillet_edges: \"all\", \"top\", \"bottom\", \"vertical\" or a list\nlike [\"Edge1\", \"Edge5\"]. Returns the new object's name, label, validity, volume,\nsize and the edges used.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "size": {
+      "title": "Size",
+      "type": "number"
+     },
+     "edges": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "default": "all",
+      "title": "Edges"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Label"
+     }
+    },
+    "required": [
+     "name",
+     "size"
+    ],
+    "title": "chamfer_edgesArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "chamfer_edgesOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
     "destructiveHint": false,
     "openWorldHint": false
    }
@@ -1109,6 +1298,73 @@
    }
   },
   {
+   "name": "fillet_edges",
+   "description": "Parametric fillet (Part::Fillet) of radius mm on edges of an existing solid.\nedges = \"all\", \"top\" (edges in the top plane: outline and hole rims), \"bottom\",\n\"vertical\" (edges parallel to Z) or a list of names like [\"Edge1\", \"Edge5\"]; seam\nedges of round faces are skipped. Edges are stored by number, so look at the part\nagain after a Params change that alters its shape. Returns the new object's name,\nlabel, validity, volume, size and the edges used.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "radius": {
+      "title": "Radius",
+      "type": "number"
+     },
+     "edges": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "default": "all",
+      "title": "Edges"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Label"
+     }
+    },
+    "required": [
+     "name",
+     "radius"
+    ],
+    "title": "fillet_edgesArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "fillet_edgesOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "get_document_info",
    "description": "List objects in the active document: name, type, valid, solids, volume, size,\nand whether it is top-level (not consumed by a boolean/feature).",
    "inputSchema": {
@@ -1555,6 +1811,165 @@
    }
   },
   {
+   "name": "pattern_linear",
+   "description": "Parametric linear pattern (Draft ortho array) of an existing object: count\ncopies, the original included, spacing mm apart along direction (default\n[1, 0, 0]). Bind the count with {\"NumberX\": \"Params.NSlots\"}; the step is the\nvector IntervalX (bind IntervalX.x etc.). Use the array as a boolean tool.\nReturns the array's name, solid count, volume and size.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "count": {
+      "title": "Count",
+      "type": "integer"
+     },
+     "spacing": {
+      "title": "Spacing",
+      "type": "number"
+     },
+     "direction": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Direction"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Label"
+     }
+    },
+    "required": [
+     "name",
+     "count",
+     "spacing"
+    ],
+    "title": "pattern_linearArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "pattern_linearOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "pattern_polar",
+   "description": "Parametric polar pattern (Draft polar array) of an existing object: count\ncopies, the original included, spread evenly over angle_deg about axis (default\n[0, 0, 1]) through center (default the origin). With 360 deg they are 360/count\napart. Bind the count with bind_parameters(<array>, {\"NumberPolar\": \"Params.NHoles\"})\nand use the array as a boolean tool. Returns the array's name, solid count,\nvolume and size.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "count": {
+      "title": "Count",
+      "type": "integer"
+     },
+     "angle_deg": {
+      "default": 360.0,
+      "title": "Angle Deg",
+      "type": "number"
+     },
+     "axis": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Axis"
+     },
+     "center": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Center"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Label"
+     }
+    },
+    "required": [
+     "name",
+     "count"
+    ],
+    "title": "pattern_polarArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "pattern_polarOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "ping_freecad",
    "description": "Check FreeCAD is running and the listener is reachable (returns versions).",
    "inputSchema": {
@@ -1876,6 +2291,76 @@
      "result"
     ],
     "title": "set_parametersOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "set_placement",
+   "description": "Move and turn an existing object (by Name or Label). position = [x, y, z] mm of\nits placement origin (default [0, 0, 0]); then a turn of rotation_deg about\nrotation_axis (default [0, 0, 1]) through that point. Sets the placement as a whole,\nnot relative to the current one. To tie a position to Params, use bind_parameters\non Placement.Base.x / .y / .z. Returns the new placement.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "position": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Position"
+     },
+     "rotation_axis": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Rotation Axis"
+     },
+     "rotation_deg": {
+      "default": 0.0,
+      "title": "Rotation Deg",
+      "type": "number"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "set_placementArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "set_placementOutput",
     "type": "object"
    },
    "annotations": {

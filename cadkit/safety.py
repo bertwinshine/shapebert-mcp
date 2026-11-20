@@ -15,9 +15,11 @@ MODEL_FILES = {".step", ".stp", ".iges", ".igs", ".brep", ".brp", ".stl", ".3mf"
 DOCUMENT_FILES = {".fcstd"}
 
 CODE_OFF_MESSAGE = (
-    "Free-form code is switched off. Use the dedicated tools, or switch it on by adding "
-    '"FREECAD_MCP_ALLOW_CODE": "1" to the env block of this server in .mcp.json. '
-    "Only do that if you trust every prompt and file the assistant will read."
+    "Free-form code is switched off (the default). Build with the structured tools instead: "
+    "create_box, create_cylinder, set_placement, bind_parameters, pattern_polar, pattern_linear, "
+    "boolean, fillet_edges, chamfer_edges. If the part really needs free-form code, tell the user "
+    "what for; they can switch it on themselves as the ShapeBert README describes under "
+    '"Switching free-form code on". Do not edit the plugin\'s own files: updates replace them.'
 )
 
 
@@ -59,7 +61,8 @@ BLOCKED_CALLS = {"eval", "exec", "compile", "open", "__import__", "globals", "br
 SYSTEM_ACCESS_MESSAGE = (
     "The code uses {found}, which CAD code doesn't need, so it was not run. Use the file "
     "tools (import_model, export_model, save_document) for files. If you really need this, "
-    'the user can add "FREECAD_MCP_ALLOW_SYSTEM": "1" to the env block in .mcp.json.'
+    "the user can set FREECAD_MCP_ALLOW_SYSTEM=1 the same way as FREECAD_MCP_ALLOW_CODE "
+    '(ShapeBert README, "Switching free-form code on").'
 )
 
 

@@ -34,7 +34,8 @@ cut to its end, and `get_job_result` pages through all of it.
 
 | Group | Tools |
 |---|---|
-| Bridge | `ping_freecad`, `get_status`, `doctor`, `run_freecad_code`, `get_job_result`, `create_box`, `create_cylinder`, `get_document_info` |
+| Bridge | `ping_freecad`, `get_status`, `doctor`, `run_freecad_code`, `get_job_result`, `get_document_info` |
+| Build | `create_box`, `create_cylinder`, `set_placement`, `bind_parameters`, `pattern_polar`, `pattern_linear`, `boolean`, `fillet_edges`, `chamfer_edges` |
 | Checking | `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `get_view`, `compare_shapes` |
 | Files | `export_model`, `import_model`, `save_document` |
 | Parameters | `set_parameters` |
@@ -43,6 +44,12 @@ cut to its end, and `get_job_result` pages through all of it.
 | FEA (CalculiX) | `fea_setup`, `fea_run`, `fea_results`: linear static (stress, displacement, reactions, safety factor), modal (natural frequencies), steady and transient heat conduction (temperatures, heat flow), thermal stress, linear buckling |
 | Calculators | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld`, `calc_fasteners`, `calc_shafts`, `calc_flanges` |
 | Knowledge | `match_domain`, `list_knowledge`, `read_knowledge`, `search_examples`, `save_example`, `log_correction` |
+
+The Build tools make plates, flanges, bolt circles, rows of holes or slots, fillets
+and chamfers without free-form code. They take numbers and object names only, make
+parametric FreeCAD objects (Part::Cut, Draft arrays, Part::Fillet ...), and
+`bind_parameters` ties their sizes and counts to the Params spreadsheet, so changing
+one value later rebuilds the part.
 
 `run_freecad_code` runs each script in a fresh namespace and returns the result,
 any printed output, and a summary of every object the script created. If the
@@ -118,10 +125,9 @@ run the macro again and restart FreeCAD.
 5. Start Claude Code in this folder, or add the `mcpServers` block to Claude
    Desktop, and ask it to ping FreeCAD.
 
-Free-form code (`run_freecad_code`) is off by default. Read "Security and what it
-can do" before you switch it on. With the plugin, set `FREECAD_MCP_ALLOW_CODE=1` as a user
-environment variable; with the manual setup, add it to the `env` block in
-`.mcp.json`.
+Free-form code (`run_freecad_code`) is off by default, and the Build tools cover
+most parts without it. Read "Switching free-form code on" below before you change
+that.
 
 Optional add-ons are not needed for the core tools. FCGear adds bevel, worm and
 other special gears, SheetMetal adds parts folded in several directions, and
@@ -217,9 +223,36 @@ never written to a log.
 
 `run_freecad_code` runs any Python it is given inside FreeCAD, and FreeCAD's Python
 can do anything your user account can. That's why it is off by default; the other
-tools only run fixed code that ships with the plugin. To switch it on, set
-`FREECAD_MCP_ALLOW_CODE=1` (a user environment variable for the plugin, or the
-`env` block in `.mcp.json` for the manual setup).
+tools only run fixed code that ships with the plugin, and the Build tools take
+numbers and names, never code.
+
+#### Switching free-form code on
+
+The risk in plain words: with free-form code on, anything the assistant reads can try
+to make it run a program on your computer. That includes a part file, a web page or
+a document. A script like that could read, change or delete your files. Switch it on
+only if you need it, keep the permission prompts on and read each script before you
+allow it.
+
+With the plugin, put the switch in your own Claude Code settings,
+`~/.claude/settings.json` (on Windows `C:\Users\<you>\.claude\settings.json`):
+
+```json
+{
+  "env": {
+    "FREECAD_MCP_ALLOW_CODE": "1"
+  }
+}
+```
+
+Merge the `env` block into what is already in that file, then restart Claude Code.
+`doctor` should now report `free_form_code: on`. To switch it off again, remove the
+line and restart. Don't edit the files in the plugin's folder
+(`.claude-plugin/plugin.json`): every plugin update replaces them. Claude Code also
+passes this setting to the other programs it starts. Nothing else reads this variable.
+
+With the manual setup, add `"FREECAD_MCP_ALLOW_CODE": "1"` to the `env` block of the
+server in your `.mcp.json` instead.
 
 Even when it is on, scripts that import `os`, `subprocess`, `socket`, `urllib` and
 similar modules, call `open`, `eval`, `exec` or `__import__`, or reach for
@@ -228,7 +261,7 @@ doesn't need any of that, and it's what an injected prompt would use to run
 programs, delete files or send your data somewhere. Treat this as a speed bump, not
 a sandbox: FreeCAD's own modules can still read and write files, and a determined
 script can find other ways round a block list. If you really need those modules,
-set `FREECAD_MCP_ALLOW_SYSTEM=1` as well. Saved examples are checked either way,
+set `FREECAD_MCP_ALLOW_SYSTEM=1` as well, in the same place. Saved examples are checked either way,
 with no switch, because future sessions copy their code.
 
 Prompt injection is the main risk with any AI tool: a downloaded STEP file, a web
@@ -300,6 +333,8 @@ you before the risky ones.
 | `match_domain`, `list_knowledge`, `read_knowledge`, `search_examples` | Read-only |
 | `fea_results` | Read-only |
 | `create_box`, `create_cylinder` | Changes model |
+| `set_placement`, `bind_parameters`, `boolean` | Changes model |
+| `pattern_polar`, `pattern_linear`, `fillet_edges`, `chamfer_edges` | Changes model |
 | `build_spur_gear`, `build_ring_gear`, `build_sheet_profile` | Changes model |
 | `set_parameters`, `import_model` | Changes model |
 | `log_correction` | Changes model (appends to the correction log) |

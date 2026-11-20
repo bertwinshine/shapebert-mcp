@@ -369,6 +369,191 @@ def set_parameters(params, sheet="Params"):
     return out
 
 
+BOOLEAN_TYPES = {"cut": "Part::Cut", "fuse": "Part::MultiFuse", "common": "Part::MultiCommon"}
+BINDABLE_KINDS = (
+    "Length",
+    "Distance",
+    "Angle",
+    "Float",
+    "Integer",
+    "Quantity",
+    "Placement",
+    "Vector",
+    "Percent",
+)
+
+
+def _shaped(names):
+    objs = [_obj(n) for n in names]
+    for obj in objs:
+        if not _has_shape(obj):
+            raise RuntimeError(f"{obj.Name} has no shape to work with")
+    return objs
+
+
+def _summary(obj):
+    shape = obj.Shape
+    return {
+        "name": obj.Name,
+        "label": obj.Label,
+        "valid": bool(shape.isValid()),
+        "solids": len(shape.Solids),
+        "volume_mm3": _r(shape.Volume),
+        "size_mm": _size(shape.BoundBox),
+    }
+
+
+def _recompute_checked(doc, obj):
+    doc.recompute()
+    if {"Invalid", "Error"} & set(obj.State or []) or not _has_shape(obj):
+        raise RuntimeError(f"{obj.Name} failed to recompute (state {list(obj.State or [])})")
+
+
+def _finish(doc, obj, label, inputs):
+    if label:
+        obj.Label = label
+    _recompute_checked(doc, obj)
+    for o in inputs:
+        o.Visibility = False
+    return _summary(obj)
+
+
+def boolean(operation, base, tools, name, label=None):
+    """Parametric cut, fuse or common of existing objects."""
+    doc = _doc()
+    base_obj, *tool_objs = _shaped([base, *tools])
+    hidden = [base_obj, *tool_objs]
+    if operation == "cut":
+        tool = tool_objs[0]
+        if len(tool_objs) > 1:
+            tool = doc.addObject("Part::MultiFuse", f"{name}Tools")
+            tool.Shapes = tool_objs
+            hidden.append(tool)
+        obj = doc.addObject("Part::Cut", name)
+        obj.Base, obj.Tool = base_obj, tool
+    else:
+        obj = doc.addObject(BOOLEAN_TYPES[operation], name)
+        obj.Shapes = [base_obj, *tool_objs]
+    return _finish(doc, obj, label, hidden)
+
+
+def set_placement(name, position, rotation_axis, rotation_deg):
+    obj = _obj(name)
+    if not hasattr(obj, "Placement"):
+        raise RuntimeError(f"{obj.Name} has no placement")
+    obj.Placement = App.Placement(
+        App.Vector(*position), App.Rotation(App.Vector(*rotation_axis), float(rotation_deg))
+    )
+    obj.Document.recompute()
+    out = {"name": obj.Name, "placement": _plain(obj.Placement)}
+    bound = [path for path, _ in obj.ExpressionEngine if path.startswith("Placement")]
+    if bound:
+        out["note"] = f"{bound} follow expressions, which override the values given here"
+    return out
+
+
+def _bindable(obj):
+    return [p for p in obj.PropertiesList if any(k in obj.getTypeIdOfProperty(p) for k in BINDABLE_KINDS)]
+
+
+def bind_parameters(name, expressions):
+    """Set expressions on an object; on any failure the old expressions come back."""
+    obj = _obj(name)
+    allowed = _bindable(obj)
+    for path in expressions:
+        if path.split(".")[0] not in allowed:
+            raise RuntimeError(
+                f"{obj.Name} has no bindable property {path.split('.')[0]!r}. Bindable: {allowed}"
+            )
+    old = dict(obj.ExpressionEngine)
+    try:
+        for path, expr in expressions.items():
+            obj.setExpression(path, expr)
+        _recompute_checked(obj.Document, obj)
+    except FREECAD_ERRORS:
+        for path in expressions:
+            obj.setExpression(path, old.get(path))
+        obj.Document.recompute()
+        raise
+    values = {}
+    for path in expressions:
+        value = obj
+        for part in path.split("."):
+            value = getattr(value, part)
+        values[path] = _plain(value)
+    return {"name": obj.Name, "bound": expressions, "values": values, **_summary(obj)}
+
+
+def pattern_polar(name, count, angle_deg, axis, center, label=None):
+    import Draft
+
+    (obj,) = _shaped([name])
+    array = Draft.make_polar_array(
+        obj, number=count, angle=angle_deg, center=App.Vector(*center), use_link=False
+    )
+    array.Axis = App.Vector(*axis)
+    return _finish(obj.Document, array, label, [obj])
+
+
+def pattern_linear(name, count, spacing, direction, label=None):
+    import Draft
+
+    (obj,) = _shaped([name])
+    step = App.Vector(*direction).normalize() * spacing
+    array = Draft.make_ortho_array(
+        obj,
+        v_x=step,
+        v_y=App.Vector(0, 1, 0),
+        v_z=App.Vector(0, 0, 1),
+        n_x=count,
+        n_y=1,
+        n_z=1,
+        use_link=False,
+    )
+    return _finish(obj.Document, array, label, [obj])
+
+
+def _is_seam(shape, edge):
+    faces = shape.ancestorsOfType(edge, Part.Face)
+    return all(f.isSame(faces[0]) for f in faces)
+
+
+def _edge_numbers(shape, edges):
+    if isinstance(edges, list):
+        numbers = [int(e[4:]) for e in edges]
+        missing = [n for n in numbers if n > len(shape.Edges)]
+        if missing:
+            raise RuntimeError(f"the shape has {len(shape.Edges)} edges, so Edge{missing[0]} does not exist")
+        return numbers
+    bb, tol = shape.BoundBox, 1e-4
+    tests = {
+        "all": lambda b: True,
+        "top": lambda b: abs(b.ZMin - bb.ZMax) < tol and abs(b.ZMax - bb.ZMax) < tol,
+        "bottom": lambda b: abs(b.ZMin - bb.ZMin) < tol and abs(b.ZMax - bb.ZMin) < tol,
+        "vertical": lambda b: b.XLength < tol and b.YLength < tol and b.ZLength > tol,
+    }
+    numbers = [
+        i
+        for i, edge in enumerate(shape.Edges, start=1)
+        if tests[edges](edge.BoundBox) and not _is_seam(shape, edge)
+    ]
+    if not numbers:
+        raise RuntimeError(f"no {edges!r} edges found on this shape")
+    return numbers
+
+
+def round_edges(kind, name, size, edges, label=None):
+    """Part::Fillet or Part::Chamfer of `size` mm on the selected edges."""
+    (obj,) = _shaped([name])
+    numbers = _edge_numbers(obj.Shape, edges)
+    feature = obj.Document.addObject(f"Part::{kind}", kind)
+    feature.Base = obj
+    feature.Edges = [(n, size, size) for n in numbers]
+    out = _finish(obj.Document, feature, label, [obj])
+    out["edges"] = [f"Edge{n}" for n in numbers]
+    return out
+
+
 def compare_shapes(candidate, reference):
     """IoU = Vol(common) / Vol(fuse), plus volume, size and centre-of-mass differences."""
     a, b = _shape(candidate), _shape(reference)

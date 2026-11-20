@@ -11,7 +11,10 @@ knowledge base, the exact calculators and the checks - use them every time.
 
 ## Tools at a glance
 - Bridge: `ping_freecad`, `get_status`, `doctor`, `run_freecad_code`, `get_job_result`,
-  `create_box`, `create_cylinder`, `get_document_info`
+  `get_document_info`
+- Build (work with free-form code off): `create_box`, `create_cylinder`, `set_placement`,
+  `bind_parameters`, `pattern_polar`, `pattern_linear`, `boolean`, `fillet_edges`,
+  `chamfer_edges`
 - Verify: `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `get_view`, `compare_shapes`
 - Files: `export_model`, `import_model`, `save_document`
 - Parametric: `set_parameters` (Params spreadsheet)
@@ -83,16 +86,26 @@ values", follow conventions.md / the domain defaults and report every value chos
    not `Part.makeBox` + Part::Feature: the pattern is in examples/plate_with_holes.md.
    Hole COUNTS too: build repeated features with PartDesign PolarPattern /
    LinearPattern and bind `Occurrences` to the parameter (e.g. Params.NHoles), never
-   a fixed Python loop - otherwise changing the count does nothing.
+   a fixed Python loop - otherwise changing the count does nothing. With the Build
+   tools, `pattern_polar` / `pattern_linear` and bind `NumberPolar` / `NumberX`.
    Give lengths with units: `set_parameters({"PlateL": "120 mm", "NHoles": 6})`,
    otherwise `Params.PlateL + 2 mm` fails with a unit mismatch.
    Name parameters descriptively (PlateL, PlateW, Thk, HoleD) - single letters like
    W, V, N, A are FreeCAD unit names and are refused as aliases.
-3. Build with `run_freecad_code` (anything beyond a plain box/cylinder). Read the
-   reply: `ok`, `new_objects` (valid? volume?), `warnings`. On error the objects are
-   rolled back - fix the code and retry, don't stack broken attempts.
-   If it answers that free-form code is switched off, tell the user what you would
-   build and how to switch it on; never try to get around the switch.
+3. Build. Free-form code (`run_freecad_code`) is off by default; `doctor` says which.
+   With it off, build from primitives with the Build tools. A flange, for example:
+   `set_parameters` -> `create_cylinder` for disk, bore and one bolt hole ->
+   `bind_parameters` (Radius, Height, Placement.Base.x from Params) -> `pattern_polar`
+   on the hole, bind its `NumberPolar` to Params.NHoles -> `boolean("cut", "Disk",
+   ["Bore", <array>], label="Result")`. Adapt a saved example's code the same way, step
+   by step. Each Build tool replies with validity and volume; a failed step adds nothing.
+   With it on, `run_freecad_code` replies with `ok`, `new_objects` (valid? volume?) and
+   `warnings`; on error the objects are rolled back - fix the code and retry, don't
+   stack broken attempts.
+   If a part truly needs free-form code, tell the user what you would build and why,
+   and point them to "Switching free-form code on" in the README. Don't ask them to
+   edit the plugin's files (updates replace them), and never try to get around the
+   switch.
 4. If a reply says `still_running`, the job is still working in FreeCAD. Call
    `get_job_result` with its `job_id` and wait; don't send the same code again.
 5. Build it so it can be edited (conventions.md, "Clean, editable models"): sketches
