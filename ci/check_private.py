@@ -17,6 +17,9 @@ SKIP_SUFFIXES = {".fcstd", ".stl", ".png", ".jpg", ".jpeg", ".step", ".stp", ".3
 NAMES_AUTHOR = {"LICENSE", "NOTICE", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"}
 # Install and uninstall commands have to name the GitHub account the plugin is published from.
 PLUGIN_COMMANDS = ("/plugin marketplace add ", "/plugin install ", "/plugin uninstall ")
+# CODEOWNERS has to name the owner's GitHub handle; other content there is still checked.
+CODEOWNERS = ".github/CODEOWNERS"
+OWNER_LINE = re.compile(r"^\S+(?:\s+@[A-Za-z0-9-]+(?:/[A-Za-z0-9_.-]+)?)+\s*$")
 
 BUILT_IN = [
     # Real home folders; placeholders like <you>, YOU or path/to are fine.
@@ -55,6 +58,8 @@ def main() -> int:
             continue
         for number, line in enumerate(text.splitlines(), 1):
             if line.lstrip().startswith(PLUGIN_COMMANDS):
+                continue
+            if name == CODEOWNERS and OWNER_LINE.match(line):
                 continue
             if any(p.search(line) for p in patterns):
                 hits.append(f"{name}:{number}: {line.strip()[:100]}")

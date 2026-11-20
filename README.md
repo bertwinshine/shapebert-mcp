@@ -79,15 +79,14 @@ to `knowledge/domains/_index.md`. Nothing else needs to change.
 
 ## Where it works
 
-Claude Code and the Claude desktop app (Cowork), with FreeCAD on the same
-computer. It doesn't work in claude.ai in the browser or in the mobile app: those
-run in the cloud and can't reach FreeCAD on your PC. Tested on Windows with
-FreeCAD 1.1; the unit tests also run on Linux.
+FreeCAD 1.1 has to run on the same computer as the AI client:
+- **Claude Code** (paid Claude plans): tested.
+- **Claude Desktop** through the [manual local-server setup](#manual-setup-windows)
+  (works on the Free plan, with its limited usage): not tested yet.
 
-Where it runs:
-- **Claude Code**: needs a paid Claude plan.
-- **Claude Desktop**: through the [manual local-server setup](#manual-setup-windows).
-  This works on the Free plan, with its limited usage.
+It doesn't work in claude.ai in the browser or in the mobile app: those run in the
+cloud and can't reach FreeCAD on your PC. Tested on Windows; the unit tests also run
+on Linux.
 
 ## Install as a Claude plugin
 
