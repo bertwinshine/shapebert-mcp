@@ -84,6 +84,11 @@ computer. It doesn't work in claude.ai in the browser or in the mobile app: thos
 run in the cloud and can't reach FreeCAD on your PC. Tested on Windows with
 FreeCAD 1.1; the unit tests also run on Linux.
 
+Where it runs:
+- **Claude Code**: needs a paid Claude plan.
+- **Claude Desktop**: through the [manual local-server setup](#manual-setup-windows).
+  This works on the Free plan, with its limited usage.
+
 ## Install as a Claude plugin
 
 You need FreeCAD 1.1 and [uv](https://docs.astral.sh/uv/getting-started/installation/)
@@ -202,6 +207,10 @@ these as single-run snapshots, not rankings.
 
 ShapeBert lets an AI drive FreeCAD on your computer, so here is exactly what it can
 reach and how to switch it off.
+
+ShapeBert's limits apply only to ShapeBert's own tools. Your AI client's built-in
+tools (shell, file access) are controlled by the client's own permission settings —
+keep them on "ask".
 
 ### Where it listens
 
