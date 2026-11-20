@@ -11,7 +11,8 @@ permissions:
 jobs:
   secrets:
     # Fails the build if a password, key or token is committed by mistake.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -28,9 +29,10 @@ jobs:
     strategy:
       fail-fast: false   # run every combination even if one fails
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
         python: ["3.11", "3.13"]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -43,7 +45,9 @@ jobs:
 
   freecad:
     # Live tests against real headless FreeCAD (conda-forge build).
-    runs-on: ubuntu-latest
+    # Pinned so the apt package versions only change when we bump it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       matrix:
         freecad: ["1.1"]
@@ -59,10 +63,13 @@ jobs:
       - run: conda install -y -c conda-forge "freecad=${{ matrix.freecad }}"
       # conda-forge FreeCAD has no FEM solver programs; the FEA tests need both. The
       # tests would only skip without them, so check they are really on the PATH.
+      # A stalled apt mirror can otherwise hang this step until the job limit.
       - name: install CalculiX and Gmsh
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y calculix-ccx gmsh
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y --no-install-recommends calculix-ccx gmsh
           command -v ccx && command -v gmsh
       - run: pip install -r requirements.txt pytest
       - name: start headless listener
