@@ -986,6 +986,7 @@ def fea_setup(
     mesh_size_mm: largest element edge; about a third of the thinnest wall or less gives
     usable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that
     would give more than about 2 million elements (part volume / size^3 x 6) is refused.
+    part: the object's Name or Label; refused if it matches more than one object.
     Returns each named face's centre, normal and area, the material values and units."""
     try:
         mat = fea.material(material)
@@ -1036,8 +1037,10 @@ def fea_run(name: str = "FEA", timeout_s: float = 600) -> str:
     """Mesh the part of a fea_setup analysis with Gmsh and solve it with CalculiX.
     Solver files go to the work folder (fea/<name>). Takes seconds to minutes; a run
     longer than timeout_s returns still_running and a job_id for get_job_result.
-    Returns node and element counts, mesh size and mesh/solve times; fea_results
-    reads the results."""
+    Returns node and element counts, mesh size and mesh/solve times, and `ccx` (the
+    CalculiX binary, version and thread count; buckling and modal run single-threaded
+    because some multithreaded builds give unstable eigenvalues); fea_results reads
+    the results."""
     try:
         fea.check_name(name)
     except ValueError as e:
@@ -1068,7 +1071,8 @@ def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> s
     probes: points [x, y, z] in mm; returns the values at the nearest mesh node
     (temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.
     That node can be up to one mesh size away; node_at_mm gives its position.
-    Every reply has a `note` on the limits of this simplified linear check."""
+    Every reply has a `note` on the limits of this simplified linear check, and `ccx`:
+    the CalculiX binary, version and thread count that produced the results."""
     try:
         fea.check_name(name)
         probes = fea.check_probes(probes)

@@ -378,7 +378,24 @@ def _solve_steel_beam(loads):
     assert setup["fixed_faces"][0]["centre_mm"] == [0, 5, 5]
     run = J(server.fea_run(timeout_s=300))
     assert run.get("ok") is not False, run
-    return setup, run, J(server.fea_results())
+    results = J(server.fea_results())
+    assert results["ccx"] == run["ccx"] and run["ccx"]["binary"] and run["ccx"]["threads"] >= 1, run["ccx"]
+    return setup, run, results
+
+
+def test_fea_setup_refuses_a_part_name_that_matches_two_objects():
+    J(server.create_box(BEAM_L, BEAM_B, BEAM_H, name="Alpha"))
+    J(server.create_box(BEAM_L, BEAM_B, BEAM_H, name="Beta"))
+    # Labels stay unique, but "Alpha" is now one object's Name and the other's Label.
+    J(
+        server.run_freecad_code(
+            "doc = App.ActiveDocument\ndoc.Alpha.Label = 'Plate'\ndoc.Beta.Label = 'Alpha'"
+        )
+    )
+    loads = [{"type": "force", "faces": ["Face2"], "value_n": 100, "direction": [0, 0, -1]}]
+    setup = J(server.fea_setup("Alpha", "steel", ["Face1"], loads, mesh_size_mm=3))
+    assert setup["ok"] is False and "matches several objects (Alpha, Beta)" in setup["error"], setup
+    assert J(server.fea_setup("Beta", "steel", ["Face1"], loads, mesh_size_mm=3)).get("ok") is not False
 
 
 def test_fea_setup_refuses_a_mesh_with_millions_of_elements():
@@ -426,6 +443,7 @@ def test_fea_modal_cantilever_matches_closed_form_frequencies():
     assert setup["analysis_type"] == "modal" and setup["modes"] == 6
     assert J(server.fea_run(timeout_s=300)).get("ok") is not False
     res = J(server.fea_results())
+    assert res["ccx"]["threads"] == 1, res["ccx"]
     f = [m["frequency_hz"] for m in res["modes"]]
     rho, a = 7850e-12, BEAM_B  # t/mm^3 keeps N, mm, MPa consistent
     e_mm = STEEL_E
@@ -559,9 +577,10 @@ def test_fea_buckling_fixed_free_column_matches_euler():
     assert setup["fixed_faces"][0]["centre_mm"] == [5, 5, 0], setup
     assert J(server.fea_run(timeout_s=600)).get("ok") is not False
     res = J(server.fea_results())
+    assert res["ccx"]["threads"] == 1, res["ccx"]
     euler = math.pi**2 * STEEL_E * BEAM_I / (4 * 500**2)
     crit = [m["critical_load_n"] for m in res["modes"]]
-    assert res["lowest_load_factor"] == pytest.approx(euler, rel=0.01)
+    assert res["lowest_load_factor"] == pytest.approx(euler, rel=0.01), res["ccx"]
     assert crit[0] == pytest.approx(euler, rel=0.01) and crit[1] == pytest.approx(euler, rel=0.01)
     assert crit[2] == pytest.approx(9 * euler, rel=0.02)
     assert "imperfections" in res["note"]

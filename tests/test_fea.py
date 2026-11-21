@@ -163,13 +163,17 @@ FINISHED = """
 
 @pytest.fixture
 def tools():
-    """fea_tools.py loaded as server.py ships it, with a stand-in for FreeCAD's console."""
-    errors = []
-    app = types.SimpleNamespace(Console=types.SimpleNamespace(PrintError=errors.append))
-    ns = {"re": re, "os": os, "math": math, "App": app}
+    """fea_tools.py loaded as server.py ships it, with stand-ins for FreeCAD's console
+    and its FEM preferences (prefs["cpus"] is the AnalysisNumCPUs setting)."""
+    errors, prefs = [], {"cpus": 1}
+    params = types.SimpleNamespace(GetInt=lambda key, default: prefs["cpus"])
+    app = types.SimpleNamespace(
+        Console=types.SimpleNamespace(PrintError=errors.append), ParamGet=lambda path: params
+    )
+    ns = {"re": re, "os": os, "math": math, "App": app, "FEM_PARAMS": "Fem", "_obj": _object_not_found}
     src = (Path(fea.__file__).with_name("fea_tools.py")).read_text(encoding="utf-8")
     exec(compile(src, "fea_tools.py", "exec"), ns)
-    ns["console_errors"] = errors
+    ns["console_errors"], ns["prefs"] = errors, prefs
     return types.SimpleNamespace(**ns)
 
 
@@ -257,3 +261,102 @@ def test_failure_shows_the_last_30_lines_and_goes_to_the_listener_log(tools, tmp
 def test_failure_falls_back_to_the_sta_file_when_ccx_printed_nothing(tools, tmp_path):
     base = _write_run(tmp_path, "", STATIC_STA)
     assert "SUMMARY OF JOB INFORMATION" in str(tools._solver_failure(base, "x", "", ""))
+
+
+def _object_not_found(name):
+    raise RuntimeError(f"Object {name!r} not found")
+
+
+@pytest.mark.parametrize("kind", ["buckling", "frequency"])
+def test_eigenvalue_runs_use_one_thread(tools, kind):
+    tools.prefs["cpus"] = 8
+    assert tools._ccx_threads(kind) == 1
+
+
+def test_static_and_thermal_runs_keep_freecads_thread_choice(tools):
+    assert tools._ccx_threads("static") == (os.cpu_count() or 1)
+    tools.prefs["cpus"] = 3
+    assert tools._ccx_threads("thermomech") == 3
+
+
+@pytest.fixture
+def fake_run(monkeypatch):
+    import subprocess
+
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, "CalculiX Version 2.21, Copyright\n Job finished\n", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    return calls
+
+
+def test_single_thread_settings_go_to_ccx_only(tools, fake_run, tmp_path, monkeypatch):
+    monkeypatch.setenv("OMP_NUM_THREADS", "16")
+    monkeypatch.delenv("CCX_NPROC_EQUATION_SOLVER", raising=False)
+    before = dict(os.environ)
+    code, stdout, _ = tools._run_ccx("/opt/ccx", str(tmp_path / "FEA_Mesh.inp"), 1)
+    (args, kwargs) = fake_run[0]
+    assert code == 0 and "Job finished" in stdout
+    assert args == ["/opt/ccx", "-i", "FEA_Mesh"] and kwargs["cwd"] == str(tmp_path)
+    assert kwargs["env"]["OMP_NUM_THREADS"] == "1" and kwargs["env"]["CCX_NPROC_EQUATION_SOLVER"] == "1"
+    assert dict(os.environ) == before
+
+
+def test_multithreaded_runs_leave_the_equation_solver_setting_alone(tools, fake_run, tmp_path, monkeypatch):
+    monkeypatch.delenv("CCX_NPROC_EQUATION_SOLVER", raising=False)
+    tools._run_ccx("ccx", str(tmp_path / "FEA_Mesh.inp"), 4)
+    env = fake_run[0][1]["env"]
+    assert env["OMP_NUM_THREADS"] == "4" and "CCX_NPROC_EQUATION_SOLVER" not in env
+
+
+class FakeSolver:
+    def __init__(self):
+        self.PropertiesList = ["AnalysisType"]
+
+    def addProperty(self, kind, name, group, doc):
+        self.PropertiesList.append(name)
+        setattr(self, name, 0 if kind == "App::PropertyInteger" else "")
+
+
+def test_the_ccx_run_is_recorded_on_the_solver_for_fea_results(tools):
+    solver = FakeSolver()
+    assert tools._ccx_info(solver) is None
+    info = tools._record_ccx(solver, "/usr/bin/ccx", "CalculiX Version 2.21, Copyright(C)", 1)
+    assert info == {"binary": "/usr/bin/ccx", "version": "2.21", "threads": 1}
+    assert tools._ccx_info(solver) == info
+    tools._record_ccx(solver, "/usr/bin/ccx", "no banner", 4)
+    assert tools._ccx_info(solver) == {"binary": "/usr/bin/ccx", "version": "unknown", "threads": 4}
+
+
+class FakeDoc:
+    def __init__(self, *objects):
+        self.objects = [types.SimpleNamespace(Name=n, Label=label) for n, label in objects]
+
+    def getObject(self, name):
+        return next((o for o in self.objects if o.Name == name), None)
+
+    def getObjectsByLabel(self, label):
+        return [o for o in self.objects if o.Label == label]
+
+
+@pytest.mark.parametrize(
+    "objects",
+    [
+        [("Box", "Column"), ("Box001", "Column")],  # two objects share the label
+        [("Column", "Plate"), ("Box001", "Column")],  # one's Name is the other's Label
+    ],
+)
+def test_fea_setup_refuses_an_ambiguous_part(tools, objects):
+    with pytest.raises(RuntimeError, match="matches several objects"):
+        tools._unique_obj(FakeDoc(*objects), "Column")
+
+
+def test_fea_setup_finds_a_part_by_name_or_label(tools):
+    doc = FakeDoc(("Box", "Column"), ("Box001", "Plate"))
+    assert tools._unique_obj(doc, "Column").Name == "Box"
+    assert tools._unique_obj(doc, "Box001").Name == "Box001"
+    with pytest.raises(RuntimeError, match="not found"):
+        tools._unique_obj(doc, "Missing")

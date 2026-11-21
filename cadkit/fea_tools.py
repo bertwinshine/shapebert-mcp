@@ -23,9 +23,28 @@ EIGEN_TABLES = {
     ),
 }
 TAIL_LINES = 30
+# Some multithreaded CalculiX builds (SPOOLES with threads) return unstable eigenvalues:
+# on CI the same buckling input gave 0.96, 8.4 and 1728 run to run. Eigenvalue runs
+# therefore use one thread; static and thermal runs keep every core.
+SINGLE_THREAD_TYPES = {"buckling", "frequency"}
+CCX_VERSION = re.compile(r"CalculiX Version (\S+?),")
 # CalculiX prints one line per fixed set: "total force (fx,fy,fz) for set FIXED and time 1.0"
 # followed by the three components.
 REACTION_LINE = re.compile(r"total force \(fx,fy,fz\) for set (\S+) and time\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)")
+
+
+def _unique_obj(doc, name):
+    """The one object whose Name or Label is `name`; refuses if several match."""
+    matches = {o.Name: o for o in doc.getObjectsByLabel(name)}
+    by_name = doc.getObject(name)
+    if by_name is not None:
+        matches[by_name.Name] = by_name
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"{name!r} matches several objects ({', '.join(sorted(matches))}); "
+            "give the part's unique Name instead, or rename the others"
+        )
+    return next(iter(matches.values())) if matches else _obj(name)
 
 
 def _fea_analysis(name):
@@ -199,7 +218,7 @@ def fea_setup(
     import ObjectsFem
 
     doc = _doc()
-    obj = _obj(part)
+    obj = _unique_obj(doc, part)
     if not _has_shape(obj) or not obj.Shape.Solids:
         raise RuntimeError(f"{part} has no solid to analyse")
     shape = obj.Shape
@@ -378,11 +397,14 @@ def fea_run(name, work_dir):
     fea.setup_ccx(ccx_binary=ccx)
     if not fea.ccx_binary_present:
         raise RuntimeError(f"{ccx} did not answer like CalculiX. Run doctor.")
+    analysis_type = solvers[0].AnalysisType
+    threads = _ccx_threads(analysis_type)
     solve_started = time.time()
-    code = fea.start_ccx()
-    problem = _solver_problem(base, code, solve_started, fea.ccx_stdout, solvers[0].AnalysisType)
+    code, stdout, stderr = _run_ccx(ccx, fea.inp_file_name, threads)
+    problem = _solver_problem(base, code, solve_started, stdout, analysis_type)
     if problem:
-        raise _solver_failure(base, problem, fea.ccx_stdout, fea.ccx_stderr)
+        raise _solver_failure(base, problem, stdout, stderr)
+    ccx_info = _record_ccx(solvers[0], ccx, stdout, threads)
     try:
         fea.load_results()
     except ValueError as exc:
@@ -402,7 +424,50 @@ def fea_run(name, work_dir):
         "element_order": "2nd order (10-node tetrahedra)",
         "mesh_s": _r(meshed - started, 1),
         "solve_s": _r(time.time() - meshed, 1),
+        "ccx": ccx_info,
     }
+
+
+def _ccx_threads(analysis_type):
+    if analysis_type in SINGLE_THREAD_TYPES:
+        return 1
+    # Same choice as FreeCAD's own runner: its CPU setting if raised, else every core.
+    preferred = App.ParamGet(FEM_PARAMS + "/Ccx").GetInt("AnalysisNumCPUs", 1)
+    return preferred if preferred > 1 else (os.cpu_count() or 1)
+
+
+def _run_ccx(ccx, inp_file, threads):
+    """Run CalculiX on `inp_file`; the thread settings go to this process only."""
+    import subprocess
+
+    env = dict(os.environ, OMP_NUM_THREADS=str(threads))
+    if threads == 1:
+        env["CCX_NPROC_EQUATION_SOLVER"] = "1"
+    folder, job = os.path.split(os.path.splitext(inp_file)[0])
+    proc = subprocess.run(
+        [ccx, "-i", job], cwd=folder, env=env, capture_output=True, text=True, errors="replace", check=False
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _record_ccx(solver, binary, stdout, threads):
+    match = CCX_VERSION.search(stdout)
+    info = {"binary": binary, "version": match.group(1) if match else "unknown", "threads": threads}
+    for prop, kind in (("CcxBinary", "App::PropertyString"), ("CcxVersion", "App::PropertyString")):
+        if prop not in solver.PropertiesList:
+            solver.addProperty(kind, prop, "ShapeBert", "CalculiX that ran the last fea_run")
+    if "CcxThreads" not in solver.PropertiesList:
+        solver.addProperty(
+            "App::PropertyInteger", "CcxThreads", "ShapeBert", "CalculiX threads in the last fea_run"
+        )
+    solver.CcxBinary, solver.CcxVersion, solver.CcxThreads = info["binary"], info["version"], threads
+    return info
+
+
+def _ccx_info(solver):
+    if "CcxBinary" not in solver.PropertiesList:
+        return None
+    return {"binary": solver.CcxBinary, "version": solver.CcxVersion, "threads": solver.CcxThreads}
 
 
 def _reactions(analysis):
@@ -622,12 +687,18 @@ def fea_results(name, probes=None):
         raise RuntimeError(f"{name} has no results yet. Run fea_run first.")
     mat = _members(analysis, base="App::MaterialObjectPython")[0].Material
     solver = _members(analysis, base="Fem::FemSolverObjectPython")[0]
+    ccx = _ccx_info(solver)
     if solver.AnalysisType == "frequency":
-        return {"analysis": name, **_modal_results(analysis, results, mat)}
+        return {"analysis": name, **_modal_results(analysis, results, mat), "ccx": ccx}
     results = sorted(results, key=lambda r: r.Time)
     res = results[-1]
     if solver.AnalysisType == "buckling":
-        return {"analysis": name, "analysis_type": "buckling", **_buckling_results(analysis, res, mat)}
+        return {
+            "analysis": name,
+            "analysis_type": "buckling",
+            **_buckling_results(analysis, res, mat),
+            "ccx": ccx,
+        }
     if solver.AnalysisType != "thermomech":
         kind, summary = "static", _static_results
     elif solver.ThermoMechType != "pure heat transfer":
@@ -636,7 +707,7 @@ def fea_results(name, probes=None):
         kind, summary = "thermal_steady", _thermal_results
     else:
         kind, summary = "thermal_transient", _thermal_results
-    out = {"analysis": name, "analysis_type": kind, **summary(analysis, res, mat)}
+    out = {"analysis": name, "analysis_type": kind, **summary(analysis, res, mat), "ccx": ccx}
     if kind == "thermal_transient":
         out["time_s"] = _r(res.Time, 3)
         out["time_steps"] = len(results)

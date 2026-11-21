@@ -76,10 +76,14 @@ jobs:
           command -v ccx && command -v gmsh
       - run: pip install -r requirements.txt pytest
       # The unpinned conda and apt packages can change between runs; log what this run got.
+      # FreeCAD looks for ccx in its own bin folder (the conda env) before the PATH.
       - name: tool versions
         run: |
-          conda list "^(freecad|occt|vtk|python)$"
+          conda list "^(freecad|occt|vtk|python|calculix|gmsh)$"
+          ls -l "$CONDA_PREFIX/bin/ccx" 2>/dev/null || echo "no ccx in the conda env"
+          echo "ccx on PATH: $(command -v ccx)"
           ccx -v | head -3 || true
+          echo "gmsh on PATH: $(command -v gmsh)"
           gmsh --version
       - name: start headless listener
         run: |

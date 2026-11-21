@@ -364,6 +364,12 @@ examples, corrections and designs belong in a separate folder: set
 same name, and saves every new example and correction to your folder, so
 `knowledge/` stays clean. Keep that folder out of any public repository.
 
+## Known limits
+
+- Some multithreaded CalculiX builds give unstable buckling/modal results; ShapeBert
+  runs those analyses single-threaded. `fea_results` reports the CalculiX binary,
+  version and thread count that were used.
+
 ## Roadmap
 
 Done so far: the bridge, the knowledge base with the ask-first rule, the
