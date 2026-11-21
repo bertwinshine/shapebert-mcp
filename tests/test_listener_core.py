@@ -1,5 +1,6 @@
 """Listener behaviour outside FreeCAD: job isolation, output capture, concurrency, timeouts."""
 
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -88,6 +89,19 @@ def test_token_file_is_created_once_and_reused(tmp_path):
     first = L.load_or_create_token(path)
     assert len(first) == 32 and L.load_or_create_token(path) == first
     assert protocol.read_token(path) == first
+
+
+def test_empty_token_file_is_replaced(tmp_path):
+    path = tmp_path / "token"
+    path.write_text("", encoding="utf-8")
+    assert len(L.load_or_create_token(path)) == 32
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows ignores POSIX file modes")
+def test_new_token_file_is_owner_only(tmp_path):
+    path = tmp_path / "token"
+    L.load_or_create_token(path)
+    assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_read_token_without_file(tmp_path):

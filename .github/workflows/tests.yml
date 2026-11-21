@@ -54,6 +54,9 @@ jobs:
     defaults:
       run:
         shell: bash -el {0}
+    # Fixed so the failure artifact below always finds the solver files.
+    env:
+      FREECAD_MCP_WORKDIR: /tmp/freecad_mcp_test_work
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: conda-incubator/setup-miniconda@fc2d68f6413eb2d87b895e92f8584b5b94a10167 # v3.3.0
@@ -72,10 +75,40 @@ jobs:
           sudo apt-get $APT_OPTS install -y --no-install-recommends calculix-ccx gmsh
           command -v ccx && command -v gmsh
       - run: pip install -r requirements.txt pytest
+      # The unpinned conda and apt packages can change between runs; log what this run got.
+      # FreeCAD looks for ccx in its own bin folder (the conda env) before the PATH.
+      - name: tool versions
+        run: |
+          conda list "^(freecad|occt|vtk|python|calculix|gmsh)$"
+          ls -l "$CONDA_PREFIX/bin/ccx" 2>/dev/null || echo "no ccx in the conda env"
+          echo "ccx on PATH: $(command -v ccx)"
+          ccx -v | head -3 || true
+          echo "gmsh on PATH: $(command -v gmsh)"
+          gmsh --version
       - name: start headless listener
         run: |
           FREECAD_MCP_HEADLESS=1 nohup freecadcmd freecad_listener.py > listener.log 2>&1 &
           for i in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/9876) 2>/dev/null && break; sleep 1; done
-      - run: pytest -q tests/integration
+      # Alone first, so an order effect from earlier tests shows up as a difference.
+      - run: pytest -q tests/integration -k buckling
+      - name: keep the buckling-only solver files
+        if: ${{ !cancelled() }}
+        run: cp -r /tmp/freecad_mcp_test_work/fea /tmp/fea_buckling_only || true
+      - if: ${{ !cancelled() }}
+        run: pytest -q tests/integration
       - if: failure()
         run: cat listener.log
+      - name: collect solver files
+        if: failure()
+        run: |
+          mkdir -p /tmp/fea_evidence
+          cp -r /tmp/fea_buckling_only /tmp/fea_evidence/buckling_only || true
+          cp -r /tmp/freecad_mcp_test_work/fea /tmp/fea_evidence/full_run || true
+          cp listener.log /tmp/fea_evidence/ || true
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fea-solver-files
+          path: /tmp/fea_evidence
+          retention-days: 7
+          if-no-files-found: warn

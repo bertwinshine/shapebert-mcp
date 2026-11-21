@@ -4,9 +4,47 @@ server.py appends this file to fc_tools.py and uses its helpers (_doc, _obj, _ha
 """
 
 FEA_ELEMENT_ORDER = "2nd"
+# CalculiX writes these next to the .inp; any left from an earlier run would be read
+# back as this run's results if ccx stopped before overwriting them.
+RESULT_SUFFIXES = (".frd", ".dat", ".sta", ".cvg")
+# For eigenvalue runs the .sta lists no steps, so ccx's own last line is the only
+# sign that the job got to the end.
+CCX_FINISHED = "Job finished"
+STA_STEP_ROW = re.compile(r"^\s*\d+\s+\d+\s+\d+\s+\d+\s+\S+", re.M)
+# A table counts only with its first numbered row, not just the heading.
+EIGEN_TABLES = {
+    "buckling": (
+        re.compile(r"B U C K L I N G\s+F A C T O R\s+O U T P U T.*?^\s*1\s+[-+0-9.]+E[-+]\d+", re.S | re.M),
+        "buckling factors",
+    ),
+    "frequency": (
+        re.compile(r"E I G E N V A L U E\s+O U T P U T.*?^\s*1\s+[-+0-9.]+E[-+]\d+", re.S | re.M),
+        "eigenvalues",
+    ),
+}
+TAIL_LINES = 30
+# Some multithreaded CalculiX builds (SPOOLES with threads) return unstable eigenvalues:
+# on CI the same buckling input gave 0.96, 8.4 and 1728 run to run. Eigenvalue runs
+# therefore use one thread; static and thermal runs keep every core.
+SINGLE_THREAD_TYPES = {"buckling", "frequency"}
+CCX_VERSION = re.compile(r"CalculiX Version (\S+?),")
 # CalculiX prints one line per fixed set: "total force (fx,fy,fz) for set FIXED and time 1.0"
 # followed by the three components.
 REACTION_LINE = re.compile(r"total force \(fx,fy,fz\) for set (\S+) and time\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)")
+
+
+def _unique_obj(doc, name):
+    """The one object whose Name or Label is `name`; refuses if several match."""
+    matches = {o.Name: o for o in doc.getObjectsByLabel(name)}
+    by_name = doc.getObject(name)
+    if by_name is not None:
+        matches[by_name.Name] = by_name
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"{name!r} matches several objects ({', '.join(sorted(matches))}); "
+            "give the part's unique Name instead, or rename the others"
+        )
+    return next(iter(matches.values())) if matches else _obj(name)
 
 
 def _fea_analysis(name):
@@ -173,15 +211,18 @@ def fea_setup(
     sliding_faces=(),
     time_end_s=None,
     time_step_s=None,
+    *,
+    max_elements,
 ):
     """Build (or replace) a CalculiX analysis of one part."""
     import ObjectsFem
 
     doc = _doc()
-    obj = _obj(part)
+    obj = _unique_obj(doc, part)
     if not _has_shape(obj) or not obj.Shape.Solids:
         raise RuntimeError(f"{part} has no solid to analyse")
     shape = obj.Shape
+    _check_element_count(shape.Volume, mesh_size_mm, max_elements)
     fixed_info = _face_info(shape, fixed_faces)
     sliding_info = _face_info(shape, sliding_faces)
     load_faces = [_face_info(shape, load["faces"]) for load in loads]
@@ -241,6 +282,18 @@ def fea_setup(
     }
 
 
+def _check_element_count(volume_mm3, mesh_size_mm, max_elements):
+    # A cube of edge h splits into about 6 tetrahedra, so volume / h^3 * 6 elements.
+    estimate = volume_mm3 / mesh_size_mm**3 * 6
+    if estimate > max_elements:
+        smallest = (volume_mm3 * 6 / max_elements) ** (1 / 3)
+        raise RuntimeError(
+            f"mesh_size_mm {mesh_size_mm} would give about {estimate:,.0f} elements for this part "
+            f"({volume_mm3:,.0f} mm^3), more than the {max_elements:,} limit. "
+            f"Use mesh_size_mm {math.ceil(smallest * 100) / 100} or larger."
+        )
+
+
 def _request_heat_flow(inp_path, node_sets):
     # FreeCAD asks CalculiX for reaction forces at fixed faces but not for the heat
     # flow at fixed temperatures, so add that request to the step.
@@ -252,6 +305,52 @@ def _request_heat_flow(inp_path, node_sets):
     request = "".join(f"*NODE PRINT, NSET={s}, TOTALS=ONLY\nRFL\n" for s in node_sets)
     with open(inp_path, "w", encoding="utf-8") as f:
         f.write(text[:cut] + request + text[cut:])
+
+
+def _remove_old_results(base):
+    for suffix in RESULT_SUFFIXES:
+        if os.path.exists(base + suffix):
+            os.remove(base + suffix)
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
+def _solver_problem(base, exit_code, started, stdout, analysis_type):
+    """Why this run's result files can't be trusted, or None if they can."""
+    if exit_code:
+        return f"CalculiX stopped with exit code {exit_code}"
+    for suffix in (".frd", ".dat"):
+        path = base + suffix
+        if not os.path.isfile(path):
+            return f"CalculiX wrote no {os.path.basename(path)}"
+        # One second of slack for file systems that store coarse modification times.
+        if os.path.getmtime(path) < started - 1:
+            return f"{os.path.basename(path)} is older than this run, so it is from an earlier analysis"
+    if CCX_FINISHED not in stdout:
+        return f"CalculiX did not report '{CCX_FINISHED}'"
+    dat = _read(base + ".dat")
+    if analysis_type in EIGEN_TABLES:
+        table, what = EIGEN_TABLES[analysis_type]
+        if not table.search(dat):
+            return f"the .dat file has no {what}"
+    elif not STA_STEP_ROW.search(_read(base + ".sta")):
+        return "the .sta file shows no finished step"
+    return None
+
+
+def _solver_failure(base, problem, stdout, stderr):
+    output = (stdout + "\n" + stderr).strip() or _read(base + ".sta").strip()
+    tail = "\n".join(output.splitlines()[-TAIL_LINES:])
+    message = f"CalculiX results not used: {problem}. Last {TAIL_LINES} lines of its output:\n{tail}"
+    # Console output gets past the listener's capture, so the listener log shows it too.
+    App.Console.PrintError(f"fea_run: {message}\n")
+    return RuntimeError(message)
 
 
 def fea_run(name, work_dir):
@@ -290,16 +389,22 @@ def fea_run(name, work_dir):
         raise RuntimeError(f"CalculiX cannot start: {problems.strip()}")
     fea.purge_results()
     fea.write_inp_file()
+    base = os.path.splitext(fea.inp_file_name)[0]
+    _remove_old_results(base)
     temperature_sets = [c.Name for c in _members(analysis, type_id="Fem::ConstraintTemperature")]
     if temperature_sets:
         _request_heat_flow(fea.inp_file_name, temperature_sets)
     fea.setup_ccx(ccx_binary=ccx)
     if not fea.ccx_binary_present:
         raise RuntimeError(f"{ccx} did not answer like CalculiX. Run doctor.")
-    code = fea.start_ccx()
-    if code:
-        errors = [ln.strip() for ln in fea.ccx_stdout.splitlines() if "ERROR" in ln][:5]
-        raise RuntimeError(f"CalculiX failed with exit code {code}: {errors or fea.ccx_stderr[-500:]}")
+    analysis_type = solvers[0].AnalysisType
+    threads = _ccx_threads(analysis_type)
+    solve_started = time.time()
+    code, stdout, stderr = _run_ccx(ccx, fea.inp_file_name, threads)
+    problem = _solver_problem(base, code, solve_started, stdout, analysis_type)
+    if problem:
+        raise _solver_failure(base, problem, stdout, stderr)
+    ccx_info = _record_ccx(solvers[0], ccx, stdout, threads)
     try:
         fea.load_results()
     except ValueError as exc:
@@ -319,7 +424,50 @@ def fea_run(name, work_dir):
         "element_order": "2nd order (10-node tetrahedra)",
         "mesh_s": _r(meshed - started, 1),
         "solve_s": _r(time.time() - meshed, 1),
+        "ccx": ccx_info,
     }
+
+
+def _ccx_threads(analysis_type):
+    if analysis_type in SINGLE_THREAD_TYPES:
+        return 1
+    # Same choice as FreeCAD's own runner: its CPU setting if raised, else every core.
+    preferred = App.ParamGet(FEM_PARAMS + "/Ccx").GetInt("AnalysisNumCPUs", 1)
+    return preferred if preferred > 1 else (os.cpu_count() or 1)
+
+
+def _run_ccx(ccx, inp_file, threads):
+    """Run CalculiX on `inp_file`; the thread settings go to this process only."""
+    import subprocess
+
+    env = dict(os.environ, OMP_NUM_THREADS=str(threads))
+    if threads == 1:
+        env["CCX_NPROC_EQUATION_SOLVER"] = "1"
+    folder, job = os.path.split(os.path.splitext(inp_file)[0])
+    proc = subprocess.run(
+        [ccx, "-i", job], cwd=folder, env=env, capture_output=True, text=True, errors="replace", check=False
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _record_ccx(solver, binary, stdout, threads):
+    match = CCX_VERSION.search(stdout)
+    info = {"binary": binary, "version": match.group(1) if match else "unknown", "threads": threads}
+    for prop, kind in (("CcxBinary", "App::PropertyString"), ("CcxVersion", "App::PropertyString")):
+        if prop not in solver.PropertiesList:
+            solver.addProperty(kind, prop, "ShapeBert", "CalculiX that ran the last fea_run")
+    if "CcxThreads" not in solver.PropertiesList:
+        solver.addProperty(
+            "App::PropertyInteger", "CcxThreads", "ShapeBert", "CalculiX threads in the last fea_run"
+        )
+    solver.CcxBinary, solver.CcxVersion, solver.CcxThreads = info["binary"], info["version"], threads
+    return info
+
+
+def _ccx_info(solver):
+    if "CcxBinary" not in solver.PropertiesList:
+        return None
+    return {"binary": solver.CcxBinary, "version": solver.CcxVersion, "threads": solver.CcxThreads}
 
 
 def _reactions(analysis):
@@ -539,12 +687,18 @@ def fea_results(name, probes=None):
         raise RuntimeError(f"{name} has no results yet. Run fea_run first.")
     mat = _members(analysis, base="App::MaterialObjectPython")[0].Material
     solver = _members(analysis, base="Fem::FemSolverObjectPython")[0]
+    ccx = _ccx_info(solver)
     if solver.AnalysisType == "frequency":
-        return {"analysis": name, **_modal_results(analysis, results, mat)}
+        return {"analysis": name, **_modal_results(analysis, results, mat), "ccx": ccx}
     results = sorted(results, key=lambda r: r.Time)
     res = results[-1]
     if solver.AnalysisType == "buckling":
-        return {"analysis": name, "analysis_type": "buckling", **_buckling_results(analysis, res, mat)}
+        return {
+            "analysis": name,
+            "analysis_type": "buckling",
+            **_buckling_results(analysis, res, mat),
+            "ccx": ccx,
+        }
     if solver.AnalysisType != "thermomech":
         kind, summary = "static", _static_results
     elif solver.ThermoMechType != "pure heat transfer":
@@ -553,7 +707,7 @@ def fea_results(name, probes=None):
         kind, summary = "thermal_steady", _thermal_results
     else:
         kind, summary = "thermal_transient", _thermal_results
-    out = {"analysis": name, "analysis_type": kind, **summary(analysis, res, mat)}
+    out = {"analysis": name, "analysis_type": kind, **summary(analysis, res, mat), "ccx": ccx}
     if kind == "thermal_transient":
         out["time_s"] = _r(res.Time, 3)
         out["time_steps"] = len(results)

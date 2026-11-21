@@ -9,7 +9,7 @@ EDGE_NAME = re.compile(r"Edge[1-9]\d{0,4}")
 EDGE_SELECTORS = {"all", "top", "bottom", "vertical"}
 BOOLEAN_OPERATIONS = {"cut", "fuse", "common"}
 UNITS = {"um", "mm", "cm", "m", "in", "ft", "deg", "rad"}
-MAX_COUNT = 500
+MAX_COUNT = 200
 
 # Numbers (with an optional unit after them), dotted references and arithmetic only.
 # FreeCAD expressions also know functions and string literals; neither is needed to
@@ -81,6 +81,10 @@ def expression(value) -> str:
             raise ValueError(f"expression {value!r}: {text[pos:].strip()[:20]!r} is not allowed")
         kind, token = match.lastgroup, match.group(match.lastgroup)
         pos = match.end()
+        if kind == "num" and not math.isfinite(float(token)):
+            raise ValueError(f"expression {value!r}: {token} is not a finite number")
+        if kind == "ref" and any(part.startswith("__") for part in token.split(".")):
+            raise ValueError(f"expression {value!r}: names starting with __ are not allowed")
         if kind == "ref":
             if token in UNITS:
                 if previous != "num":

@@ -380,9 +380,13 @@ def run_freecad_code(code: str, rollback_on_error: bool = True, timeout_s: float
         doc.recompute()
         result = {"volume": b.Shape.Volume}
 
-    Off unless FREECAD_MCP_ALLOW_CODE=1 is set for this server. Code that imports
-    os, subprocess, socket and similar modules, or calls open/eval/exec, is refused;
-    import_model, export_model and save_document handle files.
+    Off unless FREECAD_MCP_ALLOW_CODE=1 is set for this server. Imports are limited to
+    FreeCAD's CAD modules (FreeCAD, Part, Sketcher, PartDesign, Draft, Spreadsheet, Fem,
+    Mesh, BOPTools ...) and math, cmath, itertools, functools, collections, json,
+    re, dataclasses, typing, copy, random, statistics, decimal, fractions. Code that
+    imports anything else, uses getattr/vars/dir/open/eval/exec, double-underscore
+    names, or Gui.doCommand/runCommand is refused; import_model, export_model and
+    save_document handle files.
     """
     if not safety.code_allowed():
         return _refused(safety.CODE_OFF_MESSAGE)
@@ -980,7 +984,9 @@ def fea_setup(
     temperatures: list of {"faces": ["Face1"], "temperature_c": 100}.
     initial_temperature_c: start and reference temperature (default 20 °C).
     mesh_size_mm: largest element edge; about a third of the thinnest wall or less gives
-    usable results (3 mm for a 10 mm bar). Required, > 0.
+    usable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that
+    would give more than about 2 million elements (part volume / size^3 x 6) is refused.
+    part: the object's Name or Label; refused if it matches more than one object.
     Returns each named face's centre, normal and area, the material values and units."""
     try:
         mat = fea.material(material)
@@ -1017,6 +1023,7 @@ def fea_setup(
         modes=modes,
         temperatures=checked["temperatures"],
         initial_temperature_c=initial_temperature_c,
+        max_elements=fea.MAX_MESH_ELEMENTS,
     )
     if out.get("ok") is not False:
         out["material"] = mat
@@ -1030,8 +1037,10 @@ def fea_run(name: str = "FEA", timeout_s: float = 600) -> str:
     """Mesh the part of a fea_setup analysis with Gmsh and solve it with CalculiX.
     Solver files go to the work folder (fea/<name>). Takes seconds to minutes; a run
     longer than timeout_s returns still_running and a job_id for get_job_result.
-    Returns node and element counts, mesh size and mesh/solve times; fea_results
-    reads the results."""
+    Returns node and element counts, mesh size and mesh/solve times, and `ccx` (the
+    CalculiX binary, version and thread count; buckling and modal run single-threaded
+    because some multithreaded builds give unstable eigenvalues); fea_results reads
+    the results."""
     try:
         fea.check_name(name)
     except ValueError as e:
@@ -1062,7 +1071,8 @@ def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> s
     probes: points [x, y, z] in mm; returns the values at the nearest mesh node
     (temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.
     That node can be up to one mesh size away; node_at_mm gives its position.
-    Every reply has a `note` on the limits of this simplified linear check."""
+    Every reply has a `note` on the limits of this simplified linear check, and `ccx`:
+    the CalculiX binary, version and thread count that produced the results."""
     try:
         fea.check_name(name)
         probes = fea.check_probes(probes)
@@ -1173,7 +1183,8 @@ def save_example(
     """Save a user-approved part as a reusable example in the knowledge base.
     With verify_in_freecad the code is first run in a temporary document; it is saved
     only if it produces valid solids, and the measured volume/bbox are recorded.
-    Code that uses os, subprocess, open, eval and similar is refused. An existing
+    Code that imports modules outside the run_freecad_code allow-list, or uses open,
+    eval, getattr and similar, is refused. An existing
     example with the same slug is replaced only with overwrite=True."""
     # Saved examples are handed to future sessions as code to adapt, so a poisoned one
     # would spread. Knowledge stays plain CAD code, with no switch to allow more.

@@ -12,8 +12,9 @@
   and `uv lock`.
 - Bump the version in `cadkit/__init__.py`, `freecad_listener.py`, `pyproject.toml` and
   `.claude-plugin/plugin.json` together for every release.
-- Free-form code: `safety.system_access()` blocks system modules; `save_example` always
-  refuses such code.
+- Free-form code: `safety.system_access()` allows only the imports in `ALLOWED_IMPORTS`
+  and refuses reflection, dunders and FreeCADGui command runners; `save_example` always
+  refuses such code. Add a module to the allow-list only with a test.
 - Plugin rules: everything the server runs stays inside the plugin folder; files under
   256 KiB (watch `uv.lock`); README describes everything the plugin runs, sends or fetches.
 - Add-on policy: core uses plain FreeCAD only (Part, Draft, Spreadsheet, FEM). If
