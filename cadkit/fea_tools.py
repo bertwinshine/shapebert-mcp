@@ -4,6 +4,25 @@ server.py appends this file to fc_tools.py and uses its helpers (_doc, _obj, _ha
 """
 
 FEA_ELEMENT_ORDER = "2nd"
+# CalculiX writes these next to the .inp; any left from an earlier run would be read
+# back as this run's results if ccx stopped before overwriting them.
+RESULT_SUFFIXES = (".frd", ".dat", ".sta", ".cvg")
+# For eigenvalue runs the .sta lists no steps, so ccx's own last line is the only
+# sign that the job got to the end.
+CCX_FINISHED = "Job finished"
+STA_STEP_ROW = re.compile(r"^\s*\d+\s+\d+\s+\d+\s+\d+\s+\S+", re.M)
+# A table counts only with its first numbered row, not just the heading.
+EIGEN_TABLES = {
+    "buckling": (
+        re.compile(r"B U C K L I N G\s+F A C T O R\s+O U T P U T.*?^\s*1\s+[-+0-9.]+E[-+]\d+", re.S | re.M),
+        "buckling factors",
+    ),
+    "frequency": (
+        re.compile(r"E I G E N V A L U E\s+O U T P U T.*?^\s*1\s+[-+0-9.]+E[-+]\d+", re.S | re.M),
+        "eigenvalues",
+    ),
+}
+TAIL_LINES = 30
 # CalculiX prints one line per fixed set: "total force (fx,fy,fz) for set FIXED and time 1.0"
 # followed by the three components.
 REACTION_LINE = re.compile(r"total force \(fx,fy,fz\) for set (\S+) and time\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)")
@@ -269,6 +288,52 @@ def _request_heat_flow(inp_path, node_sets):
         f.write(text[:cut] + request + text[cut:])
 
 
+def _remove_old_results(base):
+    for suffix in RESULT_SUFFIXES:
+        if os.path.exists(base + suffix):
+            os.remove(base + suffix)
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
+def _solver_problem(base, exit_code, started, stdout, analysis_type):
+    """Why this run's result files can't be trusted, or None if they can."""
+    if exit_code:
+        return f"CalculiX stopped with exit code {exit_code}"
+    for suffix in (".frd", ".dat"):
+        path = base + suffix
+        if not os.path.isfile(path):
+            return f"CalculiX wrote no {os.path.basename(path)}"
+        # One second of slack for file systems that store coarse modification times.
+        if os.path.getmtime(path) < started - 1:
+            return f"{os.path.basename(path)} is older than this run, so it is from an earlier analysis"
+    if CCX_FINISHED not in stdout:
+        return f"CalculiX did not report '{CCX_FINISHED}'"
+    dat = _read(base + ".dat")
+    if analysis_type in EIGEN_TABLES:
+        table, what = EIGEN_TABLES[analysis_type]
+        if not table.search(dat):
+            return f"the .dat file has no {what}"
+    elif not STA_STEP_ROW.search(_read(base + ".sta")):
+        return "the .sta file shows no finished step"
+    return None
+
+
+def _solver_failure(base, problem, stdout, stderr):
+    output = (stdout + "\n" + stderr).strip() or _read(base + ".sta").strip()
+    tail = "\n".join(output.splitlines()[-TAIL_LINES:])
+    message = f"CalculiX results not used: {problem}. Last {TAIL_LINES} lines of its output:\n{tail}"
+    # Console output gets past the listener's capture, so the listener log shows it too.
+    App.Console.PrintError(f"fea_run: {message}\n")
+    return RuntimeError(message)
+
+
 def fea_run(name, work_dir):
     """Mesh with Gmsh and solve with CalculiX; results land in the analysis."""
     import time
@@ -305,16 +370,19 @@ def fea_run(name, work_dir):
         raise RuntimeError(f"CalculiX cannot start: {problems.strip()}")
     fea.purge_results()
     fea.write_inp_file()
+    base = os.path.splitext(fea.inp_file_name)[0]
+    _remove_old_results(base)
     temperature_sets = [c.Name for c in _members(analysis, type_id="Fem::ConstraintTemperature")]
     if temperature_sets:
         _request_heat_flow(fea.inp_file_name, temperature_sets)
     fea.setup_ccx(ccx_binary=ccx)
     if not fea.ccx_binary_present:
         raise RuntimeError(f"{ccx} did not answer like CalculiX. Run doctor.")
+    solve_started = time.time()
     code = fea.start_ccx()
-    if code:
-        errors = [ln.strip() for ln in fea.ccx_stdout.splitlines() if "ERROR" in ln][:5]
-        raise RuntimeError(f"CalculiX failed with exit code {code}: {errors or fea.ccx_stderr[-500:]}")
+    problem = _solver_problem(base, code, solve_started, fea.ccx_stdout, solvers[0].AnalysisType)
+    if problem:
+        raise _solver_failure(base, problem, fea.ccx_stdout, fea.ccx_stderr)
     try:
         fea.load_results()
     except ValueError as exc:
