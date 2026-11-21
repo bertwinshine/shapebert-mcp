@@ -1,5 +1,8 @@
 # ShapeBert – AI CAD + FEA assistant for FreeCAD
 
+Official source: github.com/bertwinshine/shapebert-mcp. Verify releases with:
+`gh release verify v1.0.0 -R bertwinshine/shapebert-mcp`
+
 An MCP server that lets Claude design parts in FreeCAD from a plain-language
 description. Before it builds anything it works out which engineering field the
 request belongs to, asks for any dimension it shouldn't guess, and runs the

@@ -33,7 +33,7 @@ INJECTION_PHRASES = re.compile(
     rf"|{URL}",
     re.IGNORECASE,
 )
-HIDDEN_CHARS = re.compile("[​-‍⁠﻿\U000e0000-\U000e007f]")
+HIDDEN_CHARS = re.compile("[\u200b-\u200d\u2060\ufeff\U000e0000-\U000e007f]")
 
 
 def _tools() -> list[dict]:
@@ -82,7 +82,7 @@ def test_injection_patterns_catch_known_phrasings(text):
     assert INJECTION_PHRASES.search(text)
 
 
-@pytest.mark.parametrize("char", ["​", "‍", "⁠", "﻿", "\U000e0041", "\U000e007f"])
+@pytest.mark.parametrize("char", ["\u200b", "\u200d", "\u2060", "\ufeff", "\U000e0041", "\U000e007f"])
 def test_hidden_character_pattern_catches_each_range(char):
     assert HIDDEN_CHARS.search(f"plain{char}text")
 
