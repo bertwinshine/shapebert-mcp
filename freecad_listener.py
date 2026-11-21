@@ -79,12 +79,14 @@ def load_or_create_token(path=TOKEN_FILE):
         token = path.read_text(encoding="utf-8").strip()
         if token:
             return token
+        path.unlink()
     path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_hex(16)
-    path.write_text(token, encoding="utf-8")
-    # On Windows chmod does little, but the file sits in the user's private profile.
-    with contextlib.suppress(OSError):
-        path.chmod(0o600)
+    # Created owner-only in one step, so the secret is never readable by others in between.
+    # On Windows the mode does little, but the file sits in the user's private profile.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(token)
     return token
 
 

@@ -56,6 +56,9 @@ LOOKUP = {**{k.lower(): k for k in MATERIALS}, "aluminum": "aluminium", "alu": "
 FACE_NAME = re.compile(r"^Face[1-9]\d*$")
 # Also names the solver folder in the work folder, so no dots or slashes.
 ANALYSIS_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+# Finer meshes than this would run Gmsh and CalculiX for hours or out of memory.
+MIN_MESH_SIZE_MM = 0.05
+MAX_MESH_ELEMENTS = 2_000_000
 SIMPLIFIED_NOTE = (
     "Simplified linear-elastic check: small deformations, ideal fixed faces, no contact, "
     "no welds or bolts, no fatigue or buckling. Peak stress at sharp corners next to fixed "
@@ -221,6 +224,11 @@ def check_setup(
     required, optional = ANALYSIS_TYPES[analysis_type]
     if not mesh_size_mm > 0:
         raise ValueError("mesh_size_mm must be > 0")
+    if mesh_size_mm < MIN_MESH_SIZE_MM:
+        raise ValueError(
+            f"mesh_size_mm {mesh_size_mm} is below the {MIN_MESH_SIZE_MM} mm minimum; "
+            "use a larger size, about a third of the thinnest wall"
+        )
     given = {
         "fixed_faces": fixed_faces,
         "sliding_faces": sliding_faces,

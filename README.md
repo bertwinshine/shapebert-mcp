@@ -221,7 +221,8 @@ port on your router.
 
 Every request must carry a secret token. The listener makes a random one the first
 time it starts and stores it in `~/.freecad_mcp/token` (on Windows
-`C:\Users\<you>\.freecad_mcp\token`); the MCP server reads the same file. Other
+`C:\Users\<you>\.freecad_mcp\token`), created readable by your account only; the
+MCP server reads the same file. Other
 programs on your PC, and web pages in your browser, can't send code to FreeCAD
 without it. To keep it somewhere else, set `FREECAD_MCP_TOKEN_FILE` to the same
 path for both FreeCAD and the server. The token never leaves your machine and is
@@ -262,13 +263,16 @@ passes this setting to the other programs it starts. Nothing else reads this var
 With the manual setup, add `"FREECAD_MCP_ALLOW_CODE": "1"` to the `env` block of the
 server in your `.mcp.json` instead.
 
-Even when it is on, scripts that import `os`, `subprocess`, `socket`, `urllib` and
-similar modules, call `open`, `eval`, `exec` or `__import__`, or reach for
-double-underscore attributes, are refused before they get to FreeCAD. CAD code
-doesn't need any of that, and it's what an injected prompt would use to run
+Even when it is on, scripts may only import FreeCAD's CAD modules (`FreeCAD`, `Part`,
+`Sketcher`, `PartDesign`, `Draft`, `Spreadsheet`, `Fem`, `Mesh` and a few more) and
+plain maths and data modules (`math`, `collections`, `json`, `re` and
+similar). Any other import is refused before it gets to FreeCAD, and so are
+`getattr`, `vars`, `open`, `eval`, `exec` and their kind, double-underscore names
+and attributes, and FreeCAD's `doCommand`/`runCommand`, which run text as Python.
+CAD code doesn't need any of that, and it's what an injected prompt would use to run
 programs, delete files or send your data somewhere. Treat this as a speed bump, not
 a sandbox: FreeCAD's own modules can still read and write files, and a determined
-script can find other ways round a block list. If you really need those modules,
+script may still find a way round the checks. If you really need other modules,
 set `FREECAD_MCP_ALLOW_SYSTEM=1` as well, in the same place. Saved examples are checked either way,
 with no switch, because future sessions copy their code.
 

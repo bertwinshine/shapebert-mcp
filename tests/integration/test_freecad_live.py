@@ -381,6 +381,13 @@ def _solve_steel_beam(loads):
     return setup, run, J(server.fea_results())
 
 
+def test_fea_setup_refuses_a_mesh_with_millions_of_elements():
+    J(server.create_box(BEAM_L, BEAM_B, BEAM_H, name="Beam"))
+    loads = [{"type": "force", "faces": ["Face2"], "value_n": 100, "direction": [0, 0, -1]}]
+    setup = J(server.fea_setup("Beam", "steel", ["Face1"], loads, mesh_size_mm=0.1))
+    assert setup["ok"] is False and "2,000,000 limit" in setup["error"], setup
+
+
 @needs_solver
 def test_fea_cantilever_point_load_matches_beam_theory():
     """100 x 10 x 10 steel, Face1 (x=0) fixed, 100 N down on Face2 (x=100):

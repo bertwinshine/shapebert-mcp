@@ -23,46 +23,83 @@ CODE_OFF_MESSAGE = (
 )
 
 
-# CAD code never needs these. Blocking them doesn't make free-form code a sandbox
-# (FreeCAD's own modules can still read and write files), but it stops the usual
-# moves of an injected prompt: run a program, reach the network, delete files.
-BLOCKED_MODULES = {
-    "os",
-    "subprocess",
-    "socket",
-    "shutil",
-    "pathlib",
-    "urllib",
-    "http",
-    "requests",
-    "ftplib",
-    "smtplib",
-    "telnetlib",
-    "ssl",
-    "ctypes",
-    "winreg",
-    "_winapi",
-    "msvcrt",
-    "multiprocessing",
-    "pickle",
-    "marshal",
-    "importlib",
-    "webbrowser",
-    "pty",
-    "signal",
-    "sys",
-    "builtins",
-    "gc",
-    "inspect",
-    "runpy",
+# Free-form code may import only these. The list doesn't make it a sandbox (FreeCAD's
+# own modules can still read and write files), but it stops the usual moves of an
+# injected prompt: run a program, reach the network, delete files.
+ALLOWED_IMPORTS = {
+    "FreeCAD",
+    "App",
+    "Part",
+    "Sketcher",
+    "Draft",
+    "PartDesign",
+    "Spreadsheet",
+    "Fem",
+    "ObjectsFem",
+    "Mesh",
+    "MeshPart",
+    "BOPTools",
+    "math",
+    "cmath",
+    "itertools",
+    "functools",
+    "collections",
+    "json",
+    "re",
+    "dataclasses",
+    "typing",
+    "copy",
+    "random",
+    "statistics",
+    "decimal",
+    "fractions",
 }
-BLOCKED_CALLS = {"eval", "exec", "compile", "open", "__import__", "globals", "breakpoint"}
+# Add-on packages under FreeCAD's lowercase namespace, allowed one by one.
+ALLOWED_PACKAGES = {"freecad.gears"}
+BLOCKED_NAMES = {
+    "getattr",
+    "setattr",
+    "delattr",
+    "vars",
+    "dir",
+    "locals",
+    "globals",
+    "eval",
+    "exec",
+    "compile",
+    "open",
+    "__import__",
+    "breakpoint",
+}
+# FreeCADGui runs these as Python, so they would carry any code past the checks.
+BLOCKED_ATTRIBUTES = {"doCommand", "doCommandGui", "runCommand", "addCommand", "runMacro"}
+# Allowed modules keep system modules as attributes (collections._sys, random._os,
+# dataclasses.sys), and typing evaluates strings, so the import list alone leaks.
+SYSTEM_ATTRIBUTES = {
+    "os",
+    "nt",
+    "posix",
+    "sys",
+    "subprocess",
+    "builtins",
+    "importlib",
+    "inspect",
+    "codecs",
+    "operator",
+    "io",
+    "linecache",
+    "get_type_hints",
+    "ForwardRef",
+    "eval_type",
+}
+ALLOWED_DUNDERS = {"__name__", "__init__"}
 
 SYSTEM_ACCESS_MESSAGE = (
-    "The code uses {found}, which CAD code doesn't need, so it was not run. Use the file "
-    "tools (import_model, export_model, save_document) for files. If you really need this, "
-    "the user can set FREECAD_MCP_ALLOW_SYSTEM=1 the same way as FREECAD_MCP_ALLOW_CODE "
-    '(ShapeBert README, "Switching free-form code on").'
+    "The code uses {found}, which CAD code doesn't need, so it was not run. Imports are "
+    "limited to FreeCAD's CAD modules and plain maths/data modules (math, collections, "
+    "json, re and similar). Use the file tools (import_model, export_model, save_document) "
+    "for files. If you really need this, the user can set FREECAD_MCP_ALLOW_SYSTEM=1 the same "
+    'way as FREECAD_MCP_ALLOW_CODE (ShapeBert README, "Switching free-form code on").'
 )
 
 
@@ -75,7 +112,7 @@ def system_access_allowed() -> bool:
 
 
 def system_access(code: str) -> list[str]:
-    """Names of blocked modules, calls and dunder tricks used in `code`."""
+    """Imports, names and attributes in `code` that CAD code is not allowed to use."""
     try:
         tree = ast.parse(code)
     except SyntaxError:
@@ -83,37 +120,35 @@ def system_access(code: str) -> list[str]:
     found = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            found.update(a.name for a in node.names if a.name.split(".")[0] in BLOCKED_MODULES)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            if node.module.split(".")[0] in BLOCKED_MODULES:
-                found.add(node.module)
-        elif isinstance(node, ast.Name) and node.id in BLOCKED_CALLS:
-            found.add(f"{node.id}()")
-        elif isinstance(node, ast.Name) and _dunder(node.id) and node.id != "__name__":
+            found.update(f"import {a.name}" for a in node.names if not _import_allowed(a.name))
+        elif isinstance(node, ast.ImportFrom):
+            if node.level or not _import_allowed(node.module or ""):
+                found.add(f"import {'.' * node.level}{node.module or ''}")
+            found.update(a.name for a in node.names if _blocked_name(a.name))
+        elif isinstance(node, ast.Name) and _blocked_name(node.id):
             found.add(node.id)
-        elif _getattr_dunder(node):
-            # getattr(__builtins__, "__import__") hides the name in a string.
-            found.add(node.args[1].value)
-        elif isinstance(node, ast.Attribute) and node.attr.startswith("__") and node.attr != "__init__":
-            # __subclasses__, __globals__, __builtins__ are the classic ways around a block list
-            found.add(node.attr)
+        elif isinstance(node, ast.Attribute) and _blocked_attribute(node.attr):
+            found.add(f".{node.attr}")
     return sorted(found)
 
 
-def _dunder(name: str) -> bool:
-    return name.startswith("__") and name.endswith("__")
+def _import_allowed(module: str) -> bool:
+    if module.split(".")[0] in ALLOWED_IMPORTS:
+        return True
+    return any(module == p or module.startswith(f"{p}.") for p in ALLOWED_PACKAGES)
 
 
-def _getattr_dunder(node: ast.AST) -> bool:
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id in {"getattr", "setattr", "delattr", "hasattr"}
-        and len(node.args) >= 2
-        and isinstance(node.args[1], ast.Constant)
-        and isinstance(node.args[1].value, str)
-        and node.args[1].value.startswith("__")
-    )
+def _blocked_name(name: str) -> bool:
+    return name in BLOCKED_NAMES or name in BLOCKED_ATTRIBUTES or _bad_dunder(name)
+
+
+def _blocked_attribute(attr: str) -> bool:
+    return attr in BLOCKED_ATTRIBUTES or attr.lstrip("_") in SYSTEM_ATTRIBUTES or _bad_dunder(attr)
+
+
+def _bad_dunder(name: str) -> bool:
+    # __subclasses__, __globals__, __self__, __builtins__ are the classic ways around a block list.
+    return name.startswith("__") and name not in ALLOWED_DUNDERS
 
 
 def code_allowed() -> bool:

@@ -110,6 +110,9 @@ def test_raw_http_post_to_the_listener_is_refused(listener):
         "getattr(__builtins__, '__import__')('os')",
         "getattr(getattr((), '__class__'), '__subclasses__')",
         "globals()['__builtins__']",
+        "import io",
+        "FreeCADGui.doCommand('x')",
+        "vars(print)",
     ],
 )
 def test_run_freecad_code_refuses_system_access(work, monkeypatch, no_freecad, code):

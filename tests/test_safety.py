@@ -1,6 +1,8 @@
 """Off switch for free-form code, the work-folder limit and the code log."""
 
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -92,8 +94,60 @@ def test_system_access_is_found(code):
     assert safety.system_access(code)
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import nt",
+        "import posix",
+        "import asyncio",
+        "import code",
+        "import io",
+        "import _io",
+        "import codecs",
+        "import operator",
+        "import linecache",
+        "import sqlite3",
+        "import zipfile",
+        "import xmlrpc.client",
+        "import concurrent.futures",
+        "import numpy",
+        "from numpy import ctypeslib",
+        "from . import helper",
+        "FreeCADGui.doCommand('x')",
+        "Gui.doCommand('x')",
+        "Gui.runCommand('Std_Macro')",
+        "run = Gui.doCommandGui",
+        "getattr(print, ''.join(['__','self','__']))",
+        "vars(print)",
+        "dir(print)",
+        "locals()",
+        "print.__self__",
+        "from FreeCAD import __builtins__",
+        "import collections\ncollections._sys.modules['os']",
+        "import random\nrandom._os.system('x')",
+        "import typing\ntyping.get_type_hints(f)",
+    ],
+)
+def test_anything_outside_the_allow_list_is_refused(code):
+    assert safety.system_access(code)
+
+
+EXAMPLE_DIRS = [Path(__file__).parent.parent / d / "examples" for d in ("knowledge", "knowledge-private")]
+SAVED_EXAMPLES = sorted(p for d in EXAMPLE_DIRS if d.is_dir() for p in d.glob("*.md"))
+
+
+@pytest.mark.parametrize("path", SAVED_EXAMPLES, ids=lambda p: p.name)
+def test_saved_examples_pass_the_allow_list(path):
+    for code in re.findall(r"```python\n(.*?)```", path.read_text(encoding="utf-8"), re.S):
+        assert safety.system_access(code) == [], path.name
+
+
 def test_plain_cad_code_passes():
-    code = "import math\nimport Part\nimport FreeCAD as App\nb = Part.makeBox(1, 2, 3)\nresult = math.pi"
+    code = (
+        "import math\nimport Part\nimport FreeCAD as App\nfrom FreeCAD import Vector\n"
+        "import freecad.gears.commands as gears\nb = Part.makeBox(1, 2, 3)\nresult = math.pi\n"
+        "if __name__ == 'x':\n    super().__init__()"
+    )
     assert safety.system_access(code) == []
 
 

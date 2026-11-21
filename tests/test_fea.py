@@ -37,6 +37,7 @@ def test_valid_setup_passes():
         (["Face1"], [{**FORCE, "value_n": -5}], 3, "flip the direction"),
         (["Face1"], [{**FORCE, "type": "moment"}], 3, "'force' or 'pressure'"),
         (["Face1"], [FORCE], 0, "mesh_size_mm"),
+        (["Face1"], [FORCE], 0.04, "0.05 mm minimum"),
     ],
 )
 def test_bad_setup_is_refused(fixed, loads, size, message):

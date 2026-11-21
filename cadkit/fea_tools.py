@@ -173,6 +173,8 @@ def fea_setup(
     sliding_faces=(),
     time_end_s=None,
     time_step_s=None,
+    *,
+    max_elements,
 ):
     """Build (or replace) a CalculiX analysis of one part."""
     import ObjectsFem
@@ -182,6 +184,7 @@ def fea_setup(
     if not _has_shape(obj) or not obj.Shape.Solids:
         raise RuntimeError(f"{part} has no solid to analyse")
     shape = obj.Shape
+    _check_element_count(shape.Volume, mesh_size_mm, max_elements)
     fixed_info = _face_info(shape, fixed_faces)
     sliding_info = _face_info(shape, sliding_faces)
     load_faces = [_face_info(shape, load["faces"]) for load in loads]
@@ -239,6 +242,18 @@ def fea_setup(
         "mesh_size_mm": mesh_size_mm,
         "element_order": "2nd order (10-node tetrahedra)",
     }
+
+
+def _check_element_count(volume_mm3, mesh_size_mm, max_elements):
+    # A cube of edge h splits into about 6 tetrahedra, so volume / h^3 * 6 elements.
+    estimate = volume_mm3 / mesh_size_mm**3 * 6
+    if estimate > max_elements:
+        smallest = (volume_mm3 * 6 / max_elements) ** (1 / 3)
+        raise RuntimeError(
+            f"mesh_size_mm {mesh_size_mm} would give about {estimate:,.0f} elements for this part "
+            f"({volume_mm3:,.0f} mm^3), more than the {max_elements:,} limit. "
+            f"Use mesh_size_mm {math.ceil(smallest * 100) / 100} or larger."
+        )
 
 
 def _request_heat_flow(inp_path, node_sets):
