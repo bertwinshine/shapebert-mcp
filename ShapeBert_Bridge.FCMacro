@@ -1,0 +1,9 @@
+"""Turn the ShapeBert bridge on or off (for the Addon Manager install).
+
+Asks whether the bridge should start now and with every FreeCAD start, and
+remembers the answer. The Addon Manager copies this macro to your Macros folder.
+"""
+
+from freecad.shapebert import bridge
+
+bridge.ask()

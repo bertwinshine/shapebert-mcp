@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>ShapeBert</name>
+  <description>Bridge that lets AI assistants (Claude Code and other MCP clients) build and check parametric FreeCAD parts, with an engineering knowledge base, exact calculators and CalculiX FEA checks. Local only, every request signed, and AI-written code needs your OK in a dialog.</description>
+  <version>1.1.0</version>
+  <date>2026-11-22</date>
+  <maintainer email="294448967+bertwinshine@users.noreply.github.com">Bertwin Kurisinkal Shine</maintainer>
+  <license file="LICENSE">Apache-2.0</license>
+  <url type="repository" branch="main">https://github.com/bertwinshine/shapebert-mcp</url>
+  <url type="bugtracker">https://github.com/bertwinshine/shapebert-mcp/issues</url>
+  <url type="readme">https://github.com/bertwinshine/shapebert-mcp/blob/main/README.md</url>
+  <icon>.claude-plugin/icon.png</icon>
+  <freecadmin>1.1.0</freecadmin>
+  <pythonmin>3.10</pythonmin>
+  <tag>AI</tag>
+  <tag>MCP</tag>
+  <tag>FEM</tag>
+  <tag>gears</tag>
+  <tag>sheet metal</tag>
+  <content>
+    <other>
+      <name>ShapeBert bridge</name>
+      <description>Starts the local bridge in FreeCAD's GUI after you agree to it (freecad/shapebert/init_gui.py).</description>
+    </other>
+  </content>
+</package>

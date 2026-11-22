@@ -1,8 +1,8 @@
 """Socket listener that runs inside FreeCAD and executes code sent by server.py.
 
-Run it as a macro in the FreeCAD GUI, or headless with
-``FREECAD_MCP_HEADLESS=1 freecadcmd freecad_listener.py``. ``FREECAD_MCP_PORT``
-overrides the default port 9876.
+Run it as a macro in the FreeCAD GUI, or headless from this folder with
+``FREECAD_MCP_HEADLESS=1 freecadcmd -c "import runpy; runpy.run_path('freecad_listener.py', run_name='__main__')"``.
+``FREECAD_MCP_PORT`` overrides the default port 9876.
 
 Every request must be signed with the token stored in ~/.freecad_mcp/token (or the
 file named by ``FREECAD_MCP_TOKEN_FILE``), and every reply is signed the same way.
@@ -35,7 +35,7 @@ try:
 except ImportError:
     App = None  # imported by the unit tests outside FreeCAD
 
-LISTENER_VERSION = "1.0.0"
+LISTENER_VERSION = "1.1.0"
 PROTOCOL_VERSION = 5
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("FREECAD_MCP_PORT", "9876"))
@@ -50,6 +50,10 @@ READ_TIMEOUT_S = 30
 OUTPUT_PAGE = 20000  # characters of stdout per reply
 MAX_OUTPUT = 2 * 1024 * 1024
 APPROVAL_TIMEOUT_S = 120
+AGENT_WARNING = (
+    "Connected AI agents can run code in FreeCAD with your user account's full permissions. "
+    "Close FreeCAD or run App._mcp_listener.stop() to stop the bridge."
+)
 ALLOWED = {"once", "session", "session_allowed", "headless_allowed"}
 REFUSALS = {
     "cancelled": "Cancelled in FreeCAD's approval dialog; the code was not run.",
@@ -253,7 +257,9 @@ def _qt_ask(source, code, on_decision):
         QtWidgets.QLabel(
             f"An AI assistant wants to run this Python code in FreeCAD ({source}).\n"
             "It can do anything your user account can. Read it before you allow it.\n"
-            f"Without an answer it is cancelled after {APPROVAL_TIMEOUT_S} s."
+            f"Without an answer it is cancelled after {APPROVAL_TIMEOUT_S} s.\n"
+            "'Allow for this FreeCAD session' runs every later script without asking "
+            "until FreeCAD closes."
         )
     )
     text = QtWidgets.QPlainTextEdit(code)
@@ -647,8 +653,12 @@ def start():
     if App.GuiUp:
         listener.start_gui()
         App.Console.PrintMessage(f"{banner} listening on {HOST}:{PORT}\n")
+        App.Console.PrintWarning(f"{banner} {AGENT_WARNING}\n")
     else:
         print(f"{banner} headless on {HOST}:{PORT}")
+        print(f"{banner} {AGENT_WARNING}")
+        if os.environ.get("FREECAD_MCP_HEADLESS_CODE") == "1":
+            print(f"{banner} FREECAD_MCP_HEADLESS_CODE=1: free-form code runs WITHOUT approval (CI only).")
         listener.run_headless()
     return listener
 

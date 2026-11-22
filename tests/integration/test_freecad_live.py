@@ -1,7 +1,7 @@
 """Tests against a running FreeCAD listener; skipped when none is reachable.
 
 They close every open FreeCAD document, so save your work first. Start a headless
-listener with ``FREECAD_MCP_HEADLESS=1 freecadcmd freecad_listener.py``.
+listener as the README's Tests section shows.
 """
 
 import math

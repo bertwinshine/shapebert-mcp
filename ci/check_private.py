@@ -13,16 +13,24 @@ ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = ("knowledge-private/",)
 SKIP_SUFFIXES = {".fcstd", ".stl", ".png", ".jpg", ".jpeg", ".step", ".stp", ".3mf", ".pdf"}
 
-# These files name the author on purpose: the copyright holder and the plugin's publisher.
-NAMES_AUTHOR = {"LICENSE", "NOTICE", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"}
-# Install and uninstall commands, the official-source line and the release check have to
-# name the GitHub account the plugin is published from.
+# These files name the author on purpose: the copyright holder, the plugin's publisher and
+# the FreeCAD add-on's maintainer.
+NAMES_AUTHOR = {
+    "LICENSE",
+    "NOTICE",
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "package.xml",
+}
+# Install and uninstall commands, the official-source line, the release check and the
+# Addon Manager repository URL have to name the GitHub account the plugin is published from.
 PLUGIN_COMMANDS = (
     "/plugin marketplace add ",
     "/plugin install ",
     "/plugin uninstall ",
     "Official source: github.com/",
     "`gh release verify ",
+    "Repository URL: `https://github.com/",
 )
 # CODEOWNERS has to name the owner's GitHub handle; other content there is still checked.
 CODEOWNERS = ".github/CODEOWNERS"
