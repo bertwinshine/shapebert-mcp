@@ -33,8 +33,8 @@ from cadkit.calculators import boat, fasteners, flanges, gears, shafts, sheet_me
 
 INSTALL_MACRO = HERE / "install_autostart.FCMacro"
 FREECAD_HOST = os.environ.get("FREECAD_MCP_HOST", "127.0.0.1")
-# Every request carries the listener token in plain text, so it must never leave
-# this computer.
+# Requests are signed, but they carry code and model data in plain text, so the
+# bridge stays on this computer.
 if FREECAD_HOST not in {"127.0.0.1", "localhost", "::1"}:
     raise SystemExit(f"FREECAD_MCP_HOST must be this computer (127.0.0.1), not {FREECAD_HOST!r}")
 FREECAD_PORT = int(os.environ.get("FREECAD_MCP_PORT", "9876"))
@@ -226,7 +226,9 @@ def _call(payload: dict, timeout: float = 60.0) -> dict:
             "once; it creates the file.",
         }
     try:
-        reply = protocol.request(FREECAD_HOST, FREECAD_PORT, {**payload, "token": token}, timeout + 5)
+        return protocol.request(FREECAD_HOST, FREECAD_PORT, payload, token, timeout + 5)
+    except protocol.ReplyRefused as e:
+        return _refused_reply(e.reason, e.reply)
     except ConnectionRefusedError:
         return {
             "ok": False,
@@ -241,12 +243,74 @@ def _call(payload: dict, timeout: float = 60.0) -> dict:
         }
     except (OSError, ValueError) as e:  # timeouts, resets, garbled replies
         return {"ok": False, "error": f"Bridge error: {type(e).__name__}: {e}"}
-    if reply.get("auth") is False:
-        reply["error"] += (
-            ". The listener uses a different token file; set FREECAD_MCP_TOKEN_FILE the same "
-            "for FreeCAD and the MCP server."
+
+
+RERUN_MACRO = f"In FreeCAD use File > Open on {INSTALL_MACRO}, run it, then restart FreeCAD."
+TOKEN_FIX = (
+    f"FreeCAD and the MCP server read different token files. Set FREECAD_MCP_TOKEN_FILE to the "
+    f"same path for both (or leave it unset for both; the default is {protocol.TOKEN_FILE})."
+)
+
+
+# Messages for a request the listener refused (its auth_error code) ...
+LISTENER_REFUSALS = {
+    "signature": ("FreeCAD's listener refused the request signature.", TOKEN_FIX),
+    "stale": (f"FreeCAD's listener refused the request as more than {protocol.CLOCK_WINDOW_S} s old.", None),
+    "replayed": ("FreeCAD's listener refused a repeated request id. Try again.", None),
+    "busy": ("FreeCAD's listener is getting too many requests. Try again shortly.", None),
+}
+# ... and for a reply this server could not verify.
+REPLY_PROBLEMS = {
+    "signature": (
+        "The reply from FreeCAD's listener failed its signature check and was ignored. Another "
+        "program may be answering on the listener's port, or the token files differ.",
+        TOKEN_FIX,
+    ),
+    "stale": ("The reply from FreeCAD's listener was too old and was ignored.", None),
+    "unsigned": (
+        "FreeCAD's listener sent an unsigned reply, so it was ignored. If FreeCAD was just updated, "
+        "its listener may be out of date.",
+        RERUN_MACRO,
+    ),
+}
+
+
+def _refused_reply(reason: str, reply: dict) -> dict:
+    """A fixed message for a reply that failed verification.
+
+    The reply is unverified, so none of its text is passed on; its fields only pick
+    which message to show.
+    """
+    if reason == "unsigned" and reply.get("busy"):
+        return {"ok": False, "error": "FreeCAD's listener is busy (too many open connections). Try again."}
+    mismatch = _protocol_mismatch(reason, reply)
+    if mismatch:
+        return mismatch
+    code = reply.get("auth_error") if reply.get("auth") is False else None
+    error, fix = LISTENER_REFUSALS.get(code) or REPLY_PROBLEMS.get(reason, REPLY_PROBLEMS["unsigned"])
+    return {"ok": False, "error": error, **({"fix": fix} if fix else {})}
+
+
+def _protocol_mismatch(reason: str, reply: dict) -> dict | None:
+    refused = reply.get("auth") is False
+    if reason == "protocol" or (reason == "unsigned" and refused and "auth_error" not in reply):
+        # Listeners before protocol 4 answer a signed request with a plain token refusal.
+        theirs = reply.get("protocol", reply.get("v"))
+        theirs = theirs if isinstance(theirs, int) else "an older one"
+        error = (
+            f"FreeCAD runs listener protocol {theirs}; this server speaks protocol {PROTOCOL_VERSION} "
+            "(signed messages). The listener in FreeCAD is out of date."
         )
-    return reply
+        return {"ok": False, "protocol_mismatch": True, "error": error, "fix": RERUN_MACRO}
+    if refused and reply.get("auth_error") in {"unsigned", "protocol"}:
+        error = "FreeCAD's listener refused this server's protocol; the two are different versions."
+        return {
+            "ok": False,
+            "protocol_mismatch": True,
+            "error": error,
+            "fix": f"Update the plugin, then: {RERUN_MACRO}",
+        }
+    return None
 
 
 def _run(code: str, rollback: bool = True, timeout: float = 60.0) -> dict:
@@ -324,7 +388,7 @@ def get_status() -> str:
 @tool()
 def doctor() -> str:
     """Setup report in one call. Returns whether FreeCAD is reachable and its listener
-    version, free-form code on or off, work folder, knowledge folders, which optional
+    version (with the fix when the listener in FreeCAD is out of date), free-form code on or off, work folder, knowledge folders, which optional
     add-ons (FCGear, SheetMetal, Fasteners) are installed with what each adds and its
     install steps, and whether the FEM programs (CalculiX, Gmsh) are found."""
     report = {
@@ -335,6 +399,14 @@ def doctor() -> str:
         "knowledge_folders": [str(p) for p in kb._roots(None)],
     }
     ping = _call({"type": "ping"}, 10)
+    if ping.get("protocol_mismatch"):
+        report["freecad"] = {
+            "reachable": True,
+            "protocol_ok": False,
+            "error": ping["error"],
+            "fix": ping["fix"],
+        }
+        return _json(report)
     if not ping.get("ok"):
         report["freecad"] = {
             "reachable": False,

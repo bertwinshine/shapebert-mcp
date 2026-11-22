@@ -9,9 +9,20 @@ reports. I'll answer within a week.
 ## How the bridge is protected
 
 - The listener inside FreeCAD only accepts connections from `127.0.0.1`.
-- Every request must carry the token from `~/.freecad_mcp/token`, which the
-  listener creates on first start, readable by your account only. Other programs and web pages can't send code
-  without it.
+- Every request must be signed with the token from `~/.freecad_mcp/token`, which
+  the listener creates on first start, readable by your account only. Other
+  programs and web pages can't send code without it.
+- The token itself never goes over the socket. Each request carries
+  HMAC-SHA256(token, label | protocol version | timestamp | nonce | SHA-256 of the
+  body). The listener checks it with a constant-time comparison and refuses requests
+  that are unsigned (including the old plain-token format), wrongly signed, changed,
+  more than 30 s off its clock, or a replay of a nonce it has already seen. It keeps
+  seen nonces until their timestamp is out of the window, with a fixed upper limit.
+- The listener signs every reply the same way, tied to the request's nonce. The server
+  checks that signature before it uses a reply. A reply that fails the check is ignored
+  and none of its text is shown, so a program squatting on the listener's port can't
+  return fake results or instructions. Requests and replies are signed under different
+  labels, so a captured request can't be echoed back as a reply.
 - Free-form code (`run_freecad_code`, and verifying examples in `save_example`) is
   off unless `FREECAD_MCP_ALLOW_CODE=1` is set. When it is on, every script is
   logged to `logs/code_log.jsonl` in the work folder. It is still not a sandbox:
@@ -27,7 +38,8 @@ reports. I'll answer within a week.
   overwrite things (`run_freecad_code`, exports, saves), so clients can ask before
   the risky ones.
 - The server only talks to a listener on this computer; it refuses to start if
-  `FREECAD_MCP_HOST` points anywhere else, so the token never leaves the machine.
+  `FREECAD_MCP_HOST` points anywhere else. Messages are signed, not encrypted, so
+  code and model data stay on this computer.
 - The listener drops clients that send nothing for 30 s and caps open connections
   and waiting jobs, so a misbehaving local program can't freeze FreeCAD.
 - Patterns are capped at 200 copies and FEA meshes at about 2 million elements (and

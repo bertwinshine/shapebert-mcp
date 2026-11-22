@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -65,16 +66,149 @@ def _flag_code(name):
     return f"import builtins\nbuiltins.{name} = True"
 
 
-@pytest.mark.parametrize("token", [None, "", "wrong", TOKEN[:-1], TOKEN + "x"])
-def test_missing_or_wrong_token_is_refused_and_code_never_runs(listener, token):
-    payload = {"type": "run_script", "code": _flag_code("_neg_token")}
-    if token is not None:
-        payload["token"] = token
-    reply = protocol.request("127.0.0.1", listener.port, payload, 5)
-    assert reply["ok"] is False and reply["auth"] is False
+def _send_raw(port, message):
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+        s.settimeout(5)
+        protocol.send_msg(s, message)
+        return protocol.recv_msg(s)
+
+
+def _signed_at(ts, payload, version=protocol.PROTOCOL_VERSION):
+    """A request envelope signed for timestamp `ts`, built the way protocol.sign does."""
+    body, nonce = json.dumps(payload), os.urandom(16).hex()
+    sig = protocol.signature(TOKEN, protocol.REQUEST, version, ts, nonce, body)
+    return {"v": version, "ts": ts, "nonce": nonce, "sig": sig, "body": body}
+
+
+RUN = {"type": "run_script", "code": _flag_code("_neg_auth")}
+
+
+def _bad_requests():
+    now, window = int(time.time()), protocol.CLOCK_WINDOW_S
+    good = protocol.sign(TOKEN, protocol.REQUEST, RUN)
+    tampered = json.dumps({**RUN, "code": RUN["code"] + "\n"})
+    as_reply = protocol.sign(TOKEN, protocol.REPLY, RUN, good["nonce"])["sig"]
+    return {
+        "legacy-token": ({**RUN, "token": TOKEN}, "unsigned"),
+        "no-signature": ({k: v for k, v in good.items() if k != "sig"}, "unsigned"),
+        "empty-signature": ({**good, "sig": ""}, "signature"),
+        "wrong-signature": ({**good, "sig": "0" * 64}, "signature"),
+        "token-as-signature": ({**good, "sig": TOKEN}, "signature"),
+        "wrong-token": (protocol.sign(TOKEN[:-1] + "0", protocol.REQUEST, RUN), "signature"),
+        "tampered-body": ({**good, "body": tampered}, "signature"),
+        "signed-as-reply": ({**good, "sig": as_reply}, "signature"),
+        "old-timestamp": (_signed_at(now - window - 2, RUN), "stale"),
+        "future-timestamp": (_signed_at(now + window + 2, RUN), "stale"),
+        "old-protocol": (_signed_at(now, RUN, version=protocol.PROTOCOL_VERSION - 1), "protocol"),
+    }
+
+
+@pytest.mark.parametrize("case", list(_bad_requests()))
+def test_bad_requests_are_refused_and_code_never_runs(listener, case):
+    message, code = _bad_requests()[case]
+    reply = _send_raw(listener.port, message)
+    assert reply["ok"] is False and reply["auth"] is False and reply["auth_error"] == code
+    assert "sig" not in reply and reply["protocol"] == protocol.PROTOCOL_VERSION
     import builtins
 
-    assert not hasattr(builtins, "_neg_token")
+    assert not hasattr(builtins, "_neg_auth")
+
+
+def test_a_replayed_request_is_refused_and_runs_once(listener):
+    code = "import builtins\nbuiltins._neg_runs = getattr(builtins, '_neg_runs', 0) + 1\nresult = 1"
+    envelope = protocol.sign(TOKEN, protocol.REQUEST, {"type": "run_script", "code": code})
+    first = protocol.open_reply(TOKEN, _send_raw(listener.port, envelope), envelope["nonce"])
+    again = _send_raw(listener.port, envelope)
+    import builtins
+
+    try:
+        assert first["ok"] is True and again["ok"] is False and again["auth_error"] == "replayed"
+        assert builtins._neg_runs == 1
+    finally:
+        del builtins._neg_runs
+
+
+@pytest.fixture
+def fake_listener(monkeypatch, tmp_path):
+    """A stand-in listener: set `.answer(request) -> reply`; raw requests land in `.received`."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(4)
+    fake = types.SimpleNamespace(received=[], answer=None)
+
+    def serve():
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            with conn:
+                (length,) = protocol.HEADER.unpack(protocol._recv_exact(conn, protocol.HEADER.size))
+                raw = protocol._recv_exact(conn, length)
+                fake.received.append(raw)
+                protocol.send_msg(conn, fake.answer(json.loads(raw)))
+
+    threading.Thread(target=serve, daemon=True).start()
+    token_file = tmp_path / "token"
+    token_file.write_text(TOKEN, encoding="utf-8")
+    monkeypatch.setattr(protocol, "read_token", functools.partial(protocol.read_token, token_file))
+    monkeypatch.setattr(server, "FREECAD_PORT", srv.getsockname()[1])
+    yield fake
+    srv.close()
+
+
+def _pong(request, token=TOKEN, nonce=None):
+    return L._sign_reply(token, {"ok": True, "result": "pong"}, nonce or request["nonce"])
+
+
+BAD_REPLIES = {
+    "unsigned": lambda r: {"ok": True, "result": "forged", "protocol": protocol.PROTOCOL_VERSION},
+    "tampered-body": lambda r: {**_pong(r), "body": json.dumps({"ok": True, "result": "forged"})},
+    "other-token": lambda r: _pong(r, token="another-token"),
+    "replayed-reply": lambda r: _pong(r, nonce="ab" * 16),
+    "request-echoed": lambda r: r,
+}
+
+
+@pytest.mark.parametrize("case", list(BAD_REPLIES))
+def test_a_reply_that_fails_verification_is_ignored(fake_listener, case):
+    fake_listener.answer = BAD_REPLIES[case]
+    reply = server._call({"type": "ping"}, 5)
+    assert reply["ok"] is False and "forged" not in json.dumps(reply)
+    assert set(reply) <= {"ok", "error", "fix"}
+
+
+def test_a_genuine_signed_reply_is_accepted(fake_listener):
+    fake_listener.answer = _pong
+    assert server._call({"type": "ping"}, 5) == {"ok": True, "result": "pong"}
+
+
+def test_the_token_never_goes_over_the_socket(fake_listener):
+    fake_listener.answer = _pong
+    server._call({"type": "ping"}, 5)
+    server._call({"type": "run_script", "code": "result = 1", "rollback": True, "timeout": 5}, 5)
+    assert len(fake_listener.received) == 2
+    for raw in fake_listener.received:
+        assert TOKEN.encode() not in raw and b'"token"' not in raw
+
+
+def test_doctor_explains_an_out_of_date_listener(fake_listener):
+    # What a protocol 3 listener answers to a request without its plain token.
+    fake_listener.answer = lambda r: {"ok": False, "error": "missing or wrong token", "auth": False}
+    freecad = load(server.doctor())["freecad"]
+    assert freecad["reachable"] is True and freecad["protocol_ok"] is False
+    assert f"protocol {protocol.PROTOCOL_VERSION}" in freecad["error"]
+    assert "install_autostart.FCMacro" in freecad["fix"]
+
+
+def test_a_different_token_file_gets_the_token_fix(listener, monkeypatch, tmp_path):
+    token_file = tmp_path / "token"
+    token_file.write_text("not-the-listener-token", encoding="utf-8")
+    monkeypatch.setattr(protocol, "read_token", functools.partial(protocol.read_token, token_file))
+    monkeypatch.setattr(server, "FREECAD_PORT", listener.port)
+    reply = server._call({"type": "ping"}, 5)
+    assert reply["ok"] is False and "signature" in reply["error"]
+    assert "FREECAD_MCP_TOKEN_FILE" in reply["fix"]
 
 
 def test_raw_http_post_to_the_listener_is_refused(listener):
@@ -98,7 +232,7 @@ def test_raw_http_post_to_the_listener_is_refused(listener):
 
     assert not hasattr(builtins, "_neg_http")
     # The listener keeps serving real clients afterwards.
-    assert protocol.request("127.0.0.1", listener.port, {"type": "ping", "token": TOKEN}, 5)["ok"]
+    assert protocol.request("127.0.0.1", listener.port, {"type": "ping"}, TOKEN, 5)["ok"]
 
 
 @pytest.mark.parametrize(
@@ -181,7 +315,7 @@ def test_token_never_reaches_a_log(listener, work, kb_copy, monkeypatch, tmp_pat
         server.save_example("t", "p", "x = 1"),
         server.log_correction("prompt", "wrong", "fix"),
     ]
-    wrong = protocol.request("127.0.0.1", listener.port, {"type": "ping", "token": "nope"}, 5)
+    wrong = _send_raw(listener.port, {"type": "ping", "token": "nope"})
     replies.append(json.dumps(wrong))
 
     logs = [p for root in (work, kb_copy) for p in root.rglob("*") if p.is_file()]

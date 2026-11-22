@@ -81,7 +81,7 @@ def unused_port():
 
 
 def _req(port, payload, timeout=10):
-    return protocol.request("127.0.0.1", port, {"token": TOKEN, **payload}, timeout)
+    return protocol.request("127.0.0.1", port, payload, TOKEN, timeout)
 
 
 def test_token_file_is_created_once_and_reused(tmp_path):
@@ -108,16 +108,32 @@ def test_read_token_without_file(tmp_path):
     assert protocol.read_token(tmp_path / "missing") is None
 
 
-@pytest.mark.parametrize("token", [None, "", "wrong"])
-def test_requests_without_the_right_token_are_refused(live, token):
+@pytest.mark.parametrize("token", ["", "wrong"])
+def test_requests_signed_with_another_token_are_refused(live, token):
     payload = {"type": "run_script", "code": "import builtins; builtins._sneaky = True"}
-    if token is not None:
-        payload["token"] = token
-    rep = protocol.request("127.0.0.1", live.port, payload, 5)
-    assert rep["ok"] is False and rep["auth"] is False
+    with pytest.raises(protocol.ReplyRefused) as refused:
+        protocol.request("127.0.0.1", live.port, payload, token, 5)
+    assert refused.value.reply["auth_error"] == "signature"
     import builtins
 
     assert not hasattr(builtins, "_sneaky")
+
+
+def test_nonce_cache_forgets_nonces_once_they_are_stale(live):
+    now = time.time()
+    live.nonces = {"old" * 8: int(now) - L.CLOCK_WINDOW_S - 5}
+    live._remember_nonce("new" * 8, int(now), now)
+    assert list(live.nonces) == ["new" * 8]
+
+
+def test_nonce_cache_is_bounded(live, monkeypatch):
+    monkeypatch.setattr(L, "MAX_NONCES", 2)
+    now = time.time()
+    live._remember_nonce("a" * 16, int(now), now)
+    live._remember_nonce("b" * 16, int(now), now)
+    with pytest.raises(L._Refused) as refused:
+        live._remember_nonce("c" * 16, int(now), now)
+    assert refused.value.code == "busy" and len(live.nonces) == 2
 
 
 def test_slow_job_keeps_running_and_its_report_can_be_fetched(live):
