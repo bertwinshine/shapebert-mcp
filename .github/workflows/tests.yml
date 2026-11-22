@@ -87,7 +87,7 @@ jobs:
           gmsh --version
       - name: start headless listener
         run: |
-          FREECAD_MCP_HEADLESS=1 FREECAD_MCP_HEADLESS_CODE=1 nohup freecadcmd freecad_listener.py > listener.log 2>&1 &
+          FREECAD_MCP_HEADLESS=1 FREECAD_MCP_HEADLESS_CODE=1 nohup freecadcmd -c "import runpy; runpy.run_path('freecad_listener.py', run_name='__main__')" > listener.log 2>&1 &
           for i in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/9876) 2>/dev/null && break; sleep 1; done
       # Alone first, so an order effect from earlier tests shows up as a difference.
       - run: pytest -q tests/integration -k buckling

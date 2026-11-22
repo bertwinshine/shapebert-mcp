@@ -1,6 +1,6 @@
 [project]
 name = "shapebert-mcp"
-version = "1.0.0"
+version = "1.1.0"
 description = "Domain-aware prompt-to-CAD MCP server for FreeCAD (knowledge base, calculators, checks)"
 readme = "README.md"
 license = "Apache-2.0"
@@ -27,3 +27,21 @@ ignore = ["E501", "SIM905"]
 [tool.ruff.lint.per-file-ignores]
 # Sent to FreeCAD appended to fc_tools.py, whose helpers it uses.
 "cadkit/fea_tools.py" = ["F821"]
+
+[tool.ruff.lint.isort]
+# FreeCAD's own modules. On a case-insensitive file system the freecad/ add-on
+# folder would otherwise make isort treat FreeCAD as first-party.
+known-third-party = [
+    "Draft",
+    "FreeCAD",
+    "FreeCADGui",
+    "Import",
+    "Mesh",
+    "MeshPart",
+    "ObjectsFem",
+    "Part",
+    "PySide",
+    "femmesh",
+    "femresult",
+    "femtools",
+]
