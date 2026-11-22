@@ -8,6 +8,10 @@ Every request must be signed with the token stored in ~/.freecad_mcp/token (or t
 file named by ``FREECAD_MCP_TOKEN_FILE``), and every reply is signed the same way.
 The listener creates the file on first start and server.py reads it, so only
 programs running as your user can send code. The token never goes over the socket.
+
+Requests marked for approval (free-form code written by the AI) wait for the user
+to allow them in a dialog in FreeCAD. Headless FreeCAD can't ask, so it refuses
+them unless ``FREECAD_MCP_HEADLESS_CODE=1`` is set (meant for CI only).
 """
 
 import contextlib
@@ -32,7 +36,7 @@ except ImportError:
     App = None  # imported by the unit tests outside FreeCAD
 
 LISTENER_VERSION = "1.0.0"
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("FREECAD_MCP_PORT", "9876"))
 TOKEN_FILE = Path(os.environ.get("FREECAD_MCP_TOKEN_FILE") or Path.home() / ".freecad_mcp" / "token")
@@ -45,6 +49,14 @@ MAX_QUEUED_JOBS = 50
 READ_TIMEOUT_S = 30
 OUTPUT_PAGE = 20000  # characters of stdout per reply
 MAX_OUTPUT = 2 * 1024 * 1024
+APPROVAL_TIMEOUT_S = 120
+ALLOWED = {"once", "session", "session_allowed", "headless_allowed"}
+REFUSALS = {
+    "cancelled": "Cancelled in FreeCAD's approval dialog; the code was not run.",
+    "timeout": f"No answer in FreeCAD's approval dialog within {APPROVAL_TIMEOUT_S} s; the code was not run.",
+    "headless_refused": "Headless FreeCAD can't show the approval dialog, so the code was not run. "
+    "For CI only, start the listener with FREECAD_MCP_HEADLESS_CODE=1.",
+}
 
 # This file is pasted into FreeCAD as a stand-alone macro, so it can't import
 # cadkit. Keep the framing and signing in sync with cadkit/protocol.py (tests check it).
@@ -223,16 +235,96 @@ def _execute(code, rollback, job_id):
     return report, stdout
 
 
+def _qt_ask(source, code, on_decision):
+    """Show the approval dialog without blocking; return a function that closes it.
+
+    The dialog is not modal and runs no event loop of its own, so FreeCAD keeps
+    working while it is open. Cancel is the default button, and Esc or closing the
+    window also cancels.
+    """
+    import FreeCADGui as Gui
+    from PySide import QtCore, QtGui, QtWidgets
+
+    dialog = QtWidgets.QDialog(Gui.getMainWindow())
+    dialog.setWindowTitle("ShapeBert: allow AI-written code?")
+    dialog.setWindowFlags(dialog.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
+    layout = QtWidgets.QVBoxLayout(dialog)
+    layout.addWidget(
+        QtWidgets.QLabel(
+            f"An AI assistant wants to run this Python code in FreeCAD ({source}).\n"
+            "It can do anything your user account can. Read it before you allow it.\n"
+            f"Without an answer it is cancelled after {APPROVAL_TIMEOUT_S} s."
+        )
+    )
+    text = QtWidgets.QPlainTextEdit(code)
+    text.setReadOnly(True)
+    text.setFont(QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont))
+    text.setMinimumSize(640, 360)
+    layout.addWidget(text)
+    buttons = QtWidgets.QDialogButtonBox()
+    once = buttons.addButton("Run once", QtWidgets.QDialogButtonBox.AcceptRole)
+    session = buttons.addButton("Allow for this FreeCAD session", QtWidgets.QDialogButtonBox.AcceptRole)
+    cancel = buttons.addButton("Cancel", QtWidgets.QDialogButtonBox.RejectRole)
+    for button in (once, session):
+        button.setAutoDefault(False)
+    cancel.setDefault(True)
+    layout.addWidget(buttons)
+    decided = []
+
+    def decide(decision):
+        if decided:
+            return
+        decided.append(decision)
+        dialog.hide()
+        dialog.deleteLater()
+        on_decision(decision)
+
+    once.clicked.connect(lambda: decide("once"))
+    session.clicked.connect(lambda: decide("session"))
+    cancel.clicked.connect(lambda: decide("cancelled"))
+    dialog.rejected.connect(lambda: decide("cancelled"))
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    cancel.setFocus()
+
+    def close():
+        if not decided:
+            decided.append("closed")
+            dialog.hide()
+            dialog.deleteLater()
+
+    return close
+
+
 class _Job:
-    def __init__(self, job_id, code, rollback):
+    def __init__(self, job_id, code, rollback, approval=None):
         self.id = job_id
         self.code = code
         self.rollback = rollback
+        # Approval jobs: {"source", "code"} to show; decision, when asked, the closer.
+        self.approval = approval
+        self.decision = None
+        self.decided = threading.Event()
+        self.asked_at = None
+        self.close = None
         self.done = threading.Event()
         self.abandoned = False
         self.started_at = None
         self.report = None
         self.stdout = ""
+
+
+def _approval(msg):
+    approval = msg.get("approval")
+    if approval is None:
+        return None
+    if not isinstance(approval, dict):
+        approval = {}
+    return {
+        "source": str(approval.get("source", "code")),
+        "code": str(approval.get("code", msg.get("code", ""))),
+    }
 
 
 class Listener:
@@ -250,26 +342,86 @@ class Listener:
         self.timer = None
         self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
         self.nonces = {}  # nonce -> its request timestamp
+        # ask(source, code, on_decision) -> close; set by start_gui. None means headless.
+        self.ask = None
+        self.pending = None  # the approval job waiting for an answer
+        self.session_allowed = False
         self.nonce_lock = threading.Lock()
 
     def drain(self):
-        """Run queued jobs. Must be called on FreeCAD's main thread."""
+        """Run queued jobs. Must be called on FreeCAD's main thread.
+
+        While an approval is open, later jobs wait so they run in order.
+        """
         while True:
+            if self.pending is not None and not self._settle(self.pending):
+                return
             try:
                 job = self.jobs.get_nowait()
             except queue.Empty:
                 return
             if job.abandoned:
                 job.done.set()
-                continue
-            self.current = job
-            job.started_at = time.time()
-            try:
-                job.report, job.stdout = _execute(job.code, job.rollback, job.id)
-            finally:
-                self.current = None
-                job.code = ""  # can be megabytes; the report is all we keep
-                job.done.set()
+            elif job.approval is not None:
+                self._ask(job)
+            else:
+                self._start(job)
+
+    def _start(self, job):
+        self.current = job
+        job.started_at = time.time()
+        try:
+            job.report, job.stdout = _execute(job.code, job.rollback, job.id)
+            if job.approval is not None:
+                job.report["approval"] = job.decision
+        finally:
+            self.current = None
+            job.code = ""  # can be megabytes; the report is all we keep
+            job.done.set()
+
+    def _standing_decision(self):
+        if self.session_allowed:
+            return "session_allowed"
+        if self.ask is None:
+            allowed = os.environ.get("FREECAD_MCP_HEADLESS_CODE") == "1"
+            return "headless_allowed" if allowed else "headless_refused"
+        return None
+
+    def _ask(self, job):
+        job.decision = self._standing_decision()
+        if job.decision is None:
+            job.asked_at = time.time()
+            self.pending = job
+            job.close = self.ask(job.approval["source"], job.approval["code"], lambda d: self._answer(job, d))
+        else:
+            self._finish_approval(job)
+
+    def _answer(self, job, decision):
+        if job.decision is None:
+            job.decision = decision
+
+    def _settle(self, job):
+        """Finish the open approval if it has an answer or ran out of time."""
+        if job.decision is None:
+            if not job.abandoned and time.time() - job.asked_at <= APPROVAL_TIMEOUT_S:
+                return False
+            job.decision = "timeout"
+        self.pending = None
+        job.close()
+        self._finish_approval(job)
+        return True
+
+    def _finish_approval(self, job):
+        job.decided.set()
+        if job.decision == "session":
+            self.session_allowed = True
+        if job.decision in ALLOWED and not job.abandoned:
+            self._start(job)
+            return
+        error = REFUSALS.get(job.decision, REFUSALS["timeout"])
+        job.report = {"ok": False, "job_id": job.id, "approval": job.decision, "error": error}
+        job.code = ""
+        job.done.set()
 
     def status(self):
         cur = self.current
@@ -394,10 +546,15 @@ class Listener:
             return {"ok": False, "error": f"{MAX_QUEUED_JOBS} jobs already waiting; try again later"}
         with self.lock:
             self.counter += 1
-            job = _Job(str(self.counter), msg.get("code", ""), bool(msg.get("rollback", True)))
+            job = _Job(
+                str(self.counter), msg.get("code", ""), bool(msg.get("rollback", True)), _approval(msg)
+            )
         self._remember(job)
         timeout = float(msg.get("timeout", 60))
         self.jobs.put(job)
+        if job.approval is not None:
+            # The run timeout starts once the user has answered.
+            job.decided.wait(APPROVAL_TIMEOUT_S + 5)
         if job.done.wait(timeout):
             return job.report or {"ok": False, "job_id": job.id, "error": "job skipped"}
 
@@ -411,6 +568,7 @@ class Listener:
             "ok": False,
             "job_id": job.id,
             "still_running": True,
+            "approval": job.decision,
             "error": f"still running after {timeout:g} s. Fetch the report with get_job_result "
             f"(job_id {job.id!r}) instead of sending the code again.",
         }
@@ -466,6 +624,7 @@ class Listener:
         self.timer.setParent(Gui.getMainWindow())
         self.timer.timeout.connect(self.drain)
         self.timer.start(30)
+        self.ask = _qt_ask
         threading.Thread(target=self.serve, daemon=True).start()
 
     def run_headless(self):
