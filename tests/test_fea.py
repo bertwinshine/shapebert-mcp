@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import re
@@ -163,17 +164,13 @@ FINISHED = """
 
 @pytest.fixture
 def tools():
-    """fea_tools.py loaded as server.py ships it, with stand-ins for FreeCAD's console
-    and its FEM preferences (prefs["cpus"] is the AnalysisNumCPUs setting)."""
-    errors, prefs = [], {"cpus": 1}
-    params = types.SimpleNamespace(GetInt=lambda key, default: prefs["cpus"])
-    app = types.SimpleNamespace(
-        Console=types.SimpleNamespace(PrintError=errors.append), ParamGet=lambda path: params
-    )
+    """fea_tools.py loaded as server.py ships it, with a stand-in for FreeCAD's console."""
+    errors = []
+    app = types.SimpleNamespace(Console=types.SimpleNamespace(PrintError=errors.append))
     ns = {"re": re, "os": os, "math": math, "App": app, "FEM_PARAMS": "Fem", "_obj": _object_not_found}
     src = (Path(fea.__file__).with_name("fea_tools.py")).read_text(encoding="utf-8")
     exec(compile(src, "fea_tools.py", "exec"), ns)
-    ns["console_errors"], ns["prefs"] = errors, prefs
+    ns["console_errors"] = errors
     return types.SimpleNamespace(**ns)
 
 
@@ -267,16 +264,33 @@ def _object_not_found(name):
     raise RuntimeError(f"Object {name!r} not found")
 
 
-@pytest.mark.parametrize("kind", ["buckling", "frequency"])
-def test_eigenvalue_runs_use_one_thread(tools, kind):
-    tools.prefs["cpus"] = 8
-    assert tools._ccx_threads(kind) == 1
+def test_calculix_runs_single_threaded_unless_the_user_opts_in(monkeypatch):
+    monkeypatch.delenv("FREECAD_MCP_CCX_THREADS", raising=False)
+    assert fea.ccx_threads() == 1
+    monkeypatch.setenv("FREECAD_MCP_CCX_THREADS", " 4 ")
+    assert fea.ccx_threads() == 4
 
 
-def test_static_and_thermal_runs_keep_freecads_thread_choice(tools):
-    assert tools._ccx_threads("static") == (os.cpu_count() or 1)
-    tools.prefs["cpus"] = 3
-    assert tools._ccx_threads("thermomech") == 3
+@pytest.mark.parametrize("value", ["0", "-2", "four", "2.5"])
+def test_a_bad_thread_setting_is_refused(monkeypatch, value):
+    monkeypatch.setenv("FREECAD_MCP_CCX_THREADS", value)
+    with pytest.raises(ValueError, match="FREECAD_MCP_CCX_THREADS"):
+        fea.ccx_threads()
+
+
+def test_fea_run_passes_the_thread_count_to_freecad(monkeypatch, tmp_path):
+    server = pytest.importorskip("server")
+    calls = []
+    monkeypatch.setenv("FREECAD_MCP_WORKDIR", str(tmp_path))
+    monkeypatch.setattr(server, "_fc", lambda func, **kw: calls.append(kw) or {"ok": True})
+    monkeypatch.delenv("FREECAD_MCP_CCX_THREADS", raising=False)
+    server.fea_run("FEA")
+    monkeypatch.setenv("FREECAD_MCP_CCX_THREADS", "6")
+    server.fea_run("FEA")
+    assert [c["threads"] for c in calls] == [1, 6]
+    monkeypatch.setenv("FREECAD_MCP_CCX_THREADS", "all")
+    reply = json.loads(server.fea_run("FEA"))
+    assert reply["ok"] is False and "FREECAD_MCP_CCX_THREADS" in reply["error"] and len(calls) == 2
 
 
 @pytest.fixture

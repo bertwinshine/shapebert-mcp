@@ -1038,16 +1038,19 @@ def fea_run(name: str = "FEA", timeout_s: float = 600) -> str:
     Solver files go to the work folder (fea/<name>). Takes seconds to minutes; a run
     longer than timeout_s returns still_running and a job_id for get_job_result.
     Returns node and element counts, mesh size and mesh/solve times, and `ccx` (the
-    CalculiX binary, version and thread count; buckling and modal run single-threaded
-    because some multithreaded builds give unstable eigenvalues); fea_results reads
-    the results."""
+    CalculiX binary, version and thread count). CalculiX runs single-threaded because
+    multithreaded builds can give unstable results; the user can opt in to more
+    threads with FREECAD_MCP_CCX_THREADS. fea_results reads the results."""
     try:
         fea.check_name(name)
+        threads = fea.ccx_threads()
     except ValueError as e:
         return _refused(str(e))
     folder = safety.work_dir() / "fea" / name
     folder.mkdir(parents=True, exist_ok=True)
-    out = _fc("fea_run", timeout=timeout_s, src=FEA_TOOLS_SRC, name=name, work_dir=str(folder))
+    out = _fc(
+        "fea_run", timeout=timeout_s, src=FEA_TOOLS_SRC, name=name, work_dir=str(folder), threads=threads
+    )
     if out.get("still_running"):
         out["advice"] = f"Call get_job_result(job_id={out['job_id']!r}) until it finishes, then fea_results."
     return _json(out)

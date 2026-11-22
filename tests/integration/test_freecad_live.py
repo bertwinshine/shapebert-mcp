@@ -379,7 +379,7 @@ def _solve_steel_beam(loads):
     run = J(server.fea_run(timeout_s=300))
     assert run.get("ok") is not False, run
     results = J(server.fea_results())
-    assert results["ccx"] == run["ccx"] and run["ccx"]["binary"] and run["ccx"]["threads"] >= 1, run["ccx"]
+    assert results["ccx"] == run["ccx"] and run["ccx"]["binary"] and run["ccx"]["threads"] == 1, run["ccx"]
     return setup, run, results
 
 
