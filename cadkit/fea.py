@@ -1,5 +1,6 @@
 """Material table and input checks for the CalculiX FEA tools (plain Python)."""
 
+import os
 import re
 
 # Linear-elastic values in N, mm, MPa; thermal values in W/(m K), J/(kg K) and 1/K.
@@ -152,6 +153,19 @@ def check_probes(probes) -> list[list[float]] | None:
     if any(len(p) != 3 for p in points):
         raise ValueError("each probe is a point [x, y, z] in mm")
     return points
+
+
+CCX_THREADS_ENV = "FREECAD_MCP_CCX_THREADS"
+
+
+def ccx_threads() -> int:
+    """CalculiX thread count: 1 unless FREECAD_MCP_CCX_THREADS asks for more."""
+    raw = os.environ.get(CCX_THREADS_ENV, "").strip()
+    if not raw:
+        return 1
+    if not raw.isdigit() or int(raw) < 1:
+        raise ValueError(f"{CCX_THREADS_ENV}={raw!r}: use a whole number of 1 or more, or leave it unset")
+    return int(raw)
 
 
 def check_name(name: str) -> str:

@@ -1110,7 +1110,7 @@
   },
   {
    "name": "fea_run",
-   "description": "Mesh the part of a fea_setup analysis with Gmsh and solve it with CalculiX.\nSolver files go to the work folder (fea/<name>). Takes seconds to minutes; a run\nlonger than timeout_s returns still_running and a job_id for get_job_result.\nReturns node and element counts, mesh size and mesh/solve times, and `ccx` (the\nCalculiX binary, version and thread count; buckling and modal run single-threaded\nbecause some multithreaded builds give unstable eigenvalues); fea_results reads\nthe results.",
+   "description": "Mesh the part of a fea_setup analysis with Gmsh and solve it with CalculiX.\nSolver files go to the work folder (fea/<name>). Takes seconds to minutes; a run\nlonger than timeout_s returns still_running and a job_id for get_job_result.\nReturns node and element counts, mesh size and mesh/solve times, and `ccx` (the\nCalculiX binary, version and thread count). CalculiX runs single-threaded because\nmultithreaded builds can give unstable results; the user can opt in to more\nthreads with FREECAD_MCP_CCX_THREADS. fea_results reads the results.",
    "inputSchema": {
     "properties": {
      "name": {

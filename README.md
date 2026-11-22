@@ -369,9 +369,22 @@ same name, and saves every new example and correction to your folder, so
 
 ## Known limits
 
-- Some multithreaded CalculiX builds give unstable buckling/modal results; ShapeBert
-  runs those analyses single-threaded. `fea_results` reports the CalculiX binary,
-  version and thread count that were used.
+- Multithreaded CalculiX builds can give unstable results. On CI the same buckling
+  input gave load factors of 0.96, 8.4 and 1728 from run to run, and static runs
+  sometimes failed the equilibrium check. ShapeBert therefore runs every CalculiX
+  analysis single-threaded, which makes large meshes slower. `fea_run` and
+  `fea_results` report the CalculiX binary, version and thread count that were used.
+
+### Running CalculiX on more threads
+
+You can opt in to more threads with `FREECAD_MCP_CCX_THREADS`. Set it in the `env`
+block in the same place as `FREECAD_MCP_ALLOW_CODE` above, for example
+`"FREECAD_MCP_CCX_THREADS": "4"`, then restart. Leave it unset for one thread.
+
+Warning: with some CalculiX builds, more than one thread gives wrong results with no
+error message. If you switch it on, solve one of your parts with and without it,
+and compare the results first. Always check `equilibrium_ok`. If results change from
+run to run, remove the setting.
 
 ## Roadmap
 

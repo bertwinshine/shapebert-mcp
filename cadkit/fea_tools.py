@@ -23,10 +23,6 @@ EIGEN_TABLES = {
     ),
 }
 TAIL_LINES = 30
-# Some multithreaded CalculiX builds (SPOOLES with threads) return unstable eigenvalues:
-# on CI the same buckling input gave 0.96, 8.4 and 1728 run to run. Eigenvalue runs
-# therefore use one thread; static and thermal runs keep every core.
-SINGLE_THREAD_TYPES = {"buckling", "frequency"}
 CCX_VERSION = re.compile(r"CalculiX Version (\S+?),")
 # CalculiX prints one line per fixed set: "total force (fx,fy,fz) for set FIXED and time 1.0"
 # followed by the three components.
@@ -353,8 +349,12 @@ def _solver_failure(base, problem, stdout, stderr):
     return RuntimeError(message)
 
 
-def fea_run(name, work_dir):
-    """Mesh with Gmsh and solve with CalculiX; results land in the analysis."""
+def fea_run(name, work_dir, threads=1):
+    """Mesh with Gmsh and solve with CalculiX; results land in the analysis.
+
+    Multithreaded CalculiX builds (SPOOLES with threads) are unreliable: on CI the same
+    buckling input gave 0.96, 8.4 and 1728 run to run, and static runs failed the
+    equilibrium check now and then. One thread is the default for that reason."""
     import time
 
     from femmesh.gmshtools import GmshTools
@@ -398,7 +398,6 @@ def fea_run(name, work_dir):
     if not fea.ccx_binary_present:
         raise RuntimeError(f"{ccx} did not answer like CalculiX. Run doctor.")
     analysis_type = solvers[0].AnalysisType
-    threads = _ccx_threads(analysis_type)
     solve_started = time.time()
     code, stdout, stderr = _run_ccx(ccx, fea.inp_file_name, threads)
     problem = _solver_problem(base, code, solve_started, stdout, analysis_type)
@@ -426,14 +425,6 @@ def fea_run(name, work_dir):
         "solve_s": _r(time.time() - meshed, 1),
         "ccx": ccx_info,
     }
-
-
-def _ccx_threads(analysis_type):
-    if analysis_type in SINGLE_THREAD_TYPES:
-        return 1
-    # Same choice as FreeCAD's own runner: its CPU setting if raised, else every core.
-    preferred = App.ParamGet(FEM_PARAMS + "/Ccx").GetInt("AnalysisNumCPUs", 1)
-    return preferred if preferred > 1 else (os.cpu_count() or 1)
 
 
 def _run_ccx(ccx, inp_file, threads):
