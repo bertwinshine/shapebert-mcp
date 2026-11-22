@@ -175,14 +175,31 @@ def safe_path(path: str, allowed_types: set[str]) -> Path:
     return target
 
 
+# Seconds the listener waits for the user's answer in FreeCAD's approval dialog;
+# keep in sync with freecad_listener.py (tests check it).
+APPROVAL_TIMEOUT_S = 120
+
+
 def log_code(source: str, code: str, blocked: bool = False) -> None:
-    record = {
-        "time": dt.datetime.now().isoformat(timespec="seconds"),
-        "source": source,
-        "blocked": bool(blocked),
-        "sha256": hashlib.sha256(code.encode("utf-8")).hexdigest(),
-        "code": code,
-    }
+    _log_record(
+        {
+            "source": source,
+            "blocked": bool(blocked),
+            "sha256": hashlib.sha256(code.encode("utf-8")).hexdigest(),
+            "code": code,
+        }
+    )
+
+
+def log_decision(source: str, code: str, decision: str) -> None:
+    """Record the user's answer in FreeCAD's approval dialog; sha256 links it to the code."""
+    _log_record(
+        {"source": source, "decision": decision, "sha256": hashlib.sha256(code.encode("utf-8")).hexdigest()}
+    )
+
+
+def _log_record(fields: dict) -> None:
+    record = {"time": dt.datetime.now().isoformat(timespec="seconds"), **fields}
     log = work_dir() / "logs" / "code_log.jsonl"
     log.parent.mkdir(exist_ok=True)
     with open(log, "a", encoding="utf-8") as f:

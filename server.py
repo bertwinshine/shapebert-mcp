@@ -318,6 +318,20 @@ def _run(code: str, rollback: bool = True, timeout: float = 60.0) -> dict:
     return _call(payload, timeout)
 
 
+def _run_approved(source: str, shown: str, code: str, rollback: bool, timeout: float) -> dict:
+    """Run AI-written code once the user allows `shown` in FreeCAD's approval dialog."""
+    payload = {
+        "type": "run_script",
+        "code": code,
+        "rollback": rollback,
+        "timeout": timeout,
+        "approval": {"source": source, "code": shown},
+    }
+    reply = _call(payload, timeout + safety.APPROVAL_TIMEOUT_S)
+    safety.log_decision(source, shown, reply.get("approval") or "no_answer")
+    return reply
+
+
 def _fc(func: str, timeout: float = 120.0, src: str = FC_TOOLS_SRC, **kwargs) -> dict:
     """Call a function from cadkit/fc_tools.py (or `src`) inside FreeCAD."""
     call = f"\nimport json as _json\nresult = {func}(**_json.loads({json.dumps(kwargs)!r}))\n"
@@ -452,6 +466,10 @@ def run_freecad_code(code: str, rollback_on_error: bool = True, timeout_s: float
         doc.recompute()
         result = {"volume": b.Shape.Volume}
 
+    Each script waits for the user in a dialog in FreeCAD (Run once / Allow for this
+    FreeCAD session / Cancel); without an answer in 120 s it is refused. A refused
+    script returns ok false with `approval` (cancelled, timeout or headless_refused).
+
     Off unless FREECAD_MCP_ALLOW_CODE=1 is set for this server. Imports are limited to
     FreeCAD's CAD modules (FreeCAD, Part, Sketcher, PartDesign, Draft, Spreadsheet, Fem,
     Mesh, BOPTools ...) and math, cmath, itertools, functools, collections, json,
@@ -466,7 +484,7 @@ def run_freecad_code(code: str, rollback_on_error: bool = True, timeout_s: float
     safety.log_code("run_freecad_code", code, blocked=found and not safety.system_access_allowed())
     if found and not safety.system_access_allowed():
         return _refused(safety.SYSTEM_ACCESS_MESSAGE.format(found=", ".join(found)))
-    reply = _run(code, rollback_on_error, timeout_s)
+    reply = _run_approved("run_freecad_code", code, code, rollback_on_error, timeout_s)
     if reply.get("ok") and any("valid" in o for o in reply.get("new_objects") or []):
         reply.update(_structure_warning())
     return _json(reply)
@@ -1257,7 +1275,8 @@ def save_example(
 ) -> str:
     """Save a user-approved part as a reusable example in the knowledge base.
     With verify_in_freecad the code is first run in a temporary document; it is saved
-    only if it produces valid solids, and the measured volume/bbox are recorded.
+    only if it produces valid solids, and the measured volume/bbox are recorded. The
+    user allows that run in FreeCAD's approval dialog, as for run_freecad_code.
     Code that imports modules outside the run_freecad_code allow-list, or uses open,
     eval, getattr and similar, is refused. An existing
     example with the same slug is replaced only with overwrite=True."""
@@ -1276,7 +1295,7 @@ def save_example(
         if not safety.code_allowed():
             return _refused("Verifying runs the code in FreeCAD. " + safety.CODE_OFF_MESSAGE)
         safety.log_code("save_example", code)
-        reply = _run(VERIFY_WRAPPER.format(code=json.dumps(code)), rollback=True, timeout=120)
+        reply = _run_approved("save_example", code, VERIFY_WRAPPER.format(code=json.dumps(code)), True, 120)
         if not reply.get("ok"):
             return _json({"saved": False, "reason": "code failed in FreeCAD", "error": reply.get("error")})
         metrics = reply.get("result") or {}

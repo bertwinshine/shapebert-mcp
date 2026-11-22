@@ -59,7 +59,7 @@ def no_freecad(monkeypatch):
     def reached(*_args, **_kwargs):
         raise AssertionError("refused code was sent to FreeCAD")
 
-    monkeypatch.setattr(server, "_run", reached)
+    monkeypatch.setattr(server, "_call", reached)
 
 
 def _flag_code(name):

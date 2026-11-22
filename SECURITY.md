@@ -29,6 +29,13 @@ reports. I'll answer within a week.
   the code can do anything your user account can, so keep your AI client's
   permission prompts on and leave it off for files or prompts from people you
   don't know.
+- With code on, every script that passes the import checks still needs your OK in a
+  dialog inside FreeCAD (Run once / Allow for this FreeCAD session / Cancel; Cancel
+  is the default). No answer in 120 s means refused. Each answer goes to the code
+  log. The server marks these requests for approval, and the listener (protocol 5)
+  holds them until you answer; the dialog never blocks FreeCAD. FreeCAD without its
+  GUI refuses them unless `FREECAD_MCP_HEADLESS_CODE=1` is set for the listener,
+  which is meant for CI only.
 - With code on, scripts may only import FreeCAD's CAD modules and plain maths and
   data modules (`math`, `collections`, ...). Other imports, `getattr`,
   `vars`, `open`, `eval`, `exec`, double-underscore names and FreeCAD's

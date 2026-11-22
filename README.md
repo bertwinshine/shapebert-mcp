@@ -154,9 +154,14 @@ need a running listener and are skipped otherwise. To run them without the GUI:
 
 ```
 set FREECAD_MCP_HEADLESS=1
+set FREECAD_MCP_HEADLESS_CODE=1
 "C:\Program Files\FreeCAD 1.1\bin\freecadcmd.exe" freecad_listener.py
 pytest tests/integration
 ```
+
+`FREECAD_MCP_HEADLESS_CODE=1` lets this headless listener run the tests' scripts
+without the approval dialog (see "The approval dialog" below). Set it only for tests
+and CI. Against FreeCAD with its GUI, every test script would wait for the dialog.
 
 They close every open FreeCAD document, so save your work first. Among other
 things they check large messages, parallel calls, timeouts, rollback after a
@@ -294,6 +299,27 @@ page or a shared document can contain text written to talk the assistant into
 running something. Keep your AI client's permission prompts on, read what
 `run_freecad_code` is about to run, and leave free-form code off when you work with
 files from people you don't know.
+
+#### The approval dialog
+
+With free-form code on, FreeCAD asks you about every script before it runs. Once the
+import checks pass, `run_freecad_code` (and the test run in `save_example`) opens a
+dialog in FreeCAD that shows the code, with three buttons:
+
+- **Run once** runs this script. The next one asks again.
+- **Allow for this FreeCAD session** runs this script and every later one until you
+  close FreeCAD.
+- **Cancel** (the default, also Esc or closing the window) refuses it.
+
+With no answer in 120 s, the script is refused. FreeCAD keeps working while the
+dialog is open; other requests wait in line until you answer. Each answer is written
+to `logs/code_log.jsonl` in the work folder, next to the code it belongs to. The
+dialog sits inside FreeCAD, outside the AI client, so a prompt injection that gets
+past your client's permission prompt still has to get past you.
+
+FreeCAD without its GUI (`freecadcmd`) can't show the dialog, so it refuses
+free-form code. For automated tests only, start the listener with
+`FREECAD_MCP_HEADLESS_CODE=1` to let it run scripts without asking.
 
 ### Files, network and logs
 
