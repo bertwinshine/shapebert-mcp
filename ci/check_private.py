@@ -15,8 +15,15 @@ SKIP_SUFFIXES = {".fcstd", ".stl", ".png", ".jpg", ".jpeg", ".step", ".stp", ".3
 
 # These files name the author on purpose: the copyright holder and the plugin's publisher.
 NAMES_AUTHOR = {"LICENSE", "NOTICE", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"}
-# Install and uninstall commands have to name the GitHub account the plugin is published from.
-PLUGIN_COMMANDS = ("/plugin marketplace add ", "/plugin install ", "/plugin uninstall ")
+# Install and uninstall commands, the official-source line and the release check have to
+# name the GitHub account the plugin is published from.
+PLUGIN_COMMANDS = (
+    "/plugin marketplace add ",
+    "/plugin install ",
+    "/plugin uninstall ",
+    "Official source: github.com/",
+    "`gh release verify ",
+)
 # CODEOWNERS has to name the owner's GitHub handle; other content there is still checked.
 CODEOWNERS = ".github/CODEOWNERS"
 OWNER_LINE = re.compile(r"^\S+(?:\s+@[A-Za-z0-9-]+(?:/[A-Za-z0-9_.-]+)?)+\s*$")

@@ -22,10 +22,6 @@
 
 ## Before public release
 
-- Own designs belong in `knowledge-private/`, never in the public repo. Today
-  `knowledge-private/` (13 files) is tracked here, including
-  `knowledge-private/examples/Hull_5m5_CFPETG.FCStd` (7.9 MB). Before going public, take
-  the folder out of the public repo, including its git history, not just the latest
-  commit.
+- Private designs and examples live outside this repository.
 - Check for any other large `.FCStd` files (`git ls-files '*.FCStd'`); none may go public,
   and none may exceed the 256 KiB plugin file limit.
