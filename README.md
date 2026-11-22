@@ -222,14 +222,24 @@ different port. The MCP server refuses to start if `FREECAD_MCP_HOST` points
 anywhere but this computer (`127.0.0.1`, `localhost` or `::1`). Don't forward the
 port on your router.
 
-Every request must carry a secret token. The listener makes a random one the first
-time it starts and stores it in `~/.freecad_mcp/token` (on Windows
+Every request is signed with a secret token. The listener makes a random one the
+first time it starts and stores it in `~/.freecad_mcp/token` (on Windows
 `C:\Users\<you>\.freecad_mcp\token`), created readable by your account only; the
-MCP server reads the same file. Other
-programs on your PC, and web pages in your browser, can't send code to FreeCAD
-without it. To keep it somewhere else, set `FREECAD_MCP_TOKEN_FILE` to the same
-path for both FreeCAD and the server. The token never leaves your machine and is
-never written to a log.
+MCP server reads the same file. Other programs on your PC, and web pages in your
+browser, can't send code to FreeCAD without it. To keep it somewhere else, set
+`FREECAD_MCP_TOKEN_FILE` to the same path for both FreeCAD and the server.
+
+The token itself is never sent. Each request carries an HMAC-SHA256 signature over
+the protocol version, a timestamp, a one-time random value (nonce) and a hash of the
+message. The listener refuses requests that are unsigned, wrongly signed, changed on
+the way, more than 30 s off its clock, or sent a second time. It signs every reply the
+same way, and the server ignores a reply that fails the check, so a program that takes
+over the listener's port can't feed it fake results. The token is never written to a
+log.
+
+If the server and the listener in FreeCAD are different versions (for example after
+a plugin update), `doctor` says so and gives the path of `install_autostart.FCMacro`
+to run again.
 
 ### Free-form code
 

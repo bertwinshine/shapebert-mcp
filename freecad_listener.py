@@ -4,12 +4,14 @@ Run it as a macro in the FreeCAD GUI, or headless with
 ``FREECAD_MCP_HEADLESS=1 freecadcmd freecad_listener.py``. ``FREECAD_MCP_PORT``
 overrides the default port 9876.
 
-Every request must carry the token stored in ~/.freecad_mcp/token (or the file
-named by ``FREECAD_MCP_TOKEN_FILE``). The listener creates it on first start and
-server.py reads it, so only programs running as your user can send code.
+Every request must be signed with the token stored in ~/.freecad_mcp/token (or the
+file named by ``FREECAD_MCP_TOKEN_FILE``), and every reply is signed the same way.
+The listener creates the file on first start and server.py reads it, so only
+programs running as your user can send code. The token never goes over the socket.
 """
 
 import contextlib
+import hashlib
 import hmac
 import io
 import json
@@ -30,7 +32,7 @@ except ImportError:
     App = None  # imported by the unit tests outside FreeCAD
 
 LISTENER_VERSION = "1.0.0"
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("FREECAD_MCP_PORT", "9876"))
 TOKEN_FILE = Path(os.environ.get("FREECAD_MCP_TOKEN_FILE") or Path.home() / ".freecad_mcp" / "token")
@@ -45,9 +47,14 @@ OUTPUT_PAGE = 20000  # characters of stdout per reply
 MAX_OUTPUT = 2 * 1024 * 1024
 
 # This file is pasted into FreeCAD as a stand-alone macro, so it can't import
-# cadkit. Keep the framing in sync with cadkit/protocol.py (tests check it).
+# cadkit. Keep the framing and signing in sync with cadkit/protocol.py (tests check it).
 _HEADER = struct.Struct(">I")
 _MAX_MESSAGE = 64 * 1024 * 1024
+_REQUEST, _REPLY = "shapebert-request", "shapebert-reply"
+CLOCK_WINDOW_S = 30
+# Nonces are kept until their timestamp falls out of the clock window. Only token
+# holders can add one, so the cap is a backstop, not a limit real use reaches.
+MAX_NONCES = 10000
 
 
 def _recv_exact(sock, n):
@@ -70,6 +77,25 @@ def _recv_msg(sock):
     if length > _MAX_MESSAGE:
         raise ValueError("message too large")
     return json.loads(_recv_exact(sock, length).decode("utf-8"))
+
+
+def _signature(token, label, version, ts, nonce, body):
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    text = f"{label}|{version}|{ts}|{nonce}|{digest}"
+    return hmac.new(token.encode("utf-8"), text.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _sign_reply(token, payload, nonce):
+    body = json.dumps(payload)
+    ts = int(time.time())
+    sig = _signature(token, _REPLY, PROTOCOL_VERSION, ts, nonce, body)
+    return {"v": PROTOCOL_VERSION, "ts": ts, "nonce": nonce, "sig": sig, "body": body}
+
+
+class _Refused(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
 
 
 def load_or_create_token(path=TOKEN_FILE):
@@ -223,6 +249,8 @@ class Listener:
         self.srv = None
         self.timer = None
         self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self.nonces = {}  # nonce -> its request timestamp
+        self.nonce_lock = threading.Lock()
 
     def drain(self):
         """Run queued jobs. Must be called on FreeCAD's main thread."""
@@ -266,7 +294,9 @@ class Listener:
     def handle(self, conn):
         if not self.slots.acquire(blocking=False):
             with conn, contextlib.suppress(OSError):
-                _send_msg(conn, {"ok": False, "error": "listener busy: too many open connections"})
+                _send_msg(
+                    conn, {"ok": False, "busy": True, "error": "listener busy: too many open connections"}
+                )
             return
         try:
             self._handle(conn)
@@ -286,23 +316,71 @@ class Listener:
                 return
             conn.settimeout(None)
 
-            if not hmac.compare_digest(str(msg.get("token", "")), self.token):
-                error = f"missing or wrong token; server.py must read {TOKEN_FILE}"
-                _send_msg(conn, {"ok": False, "error": error, "auth": False})
+            try:
+                nonce, request = self._open_request(msg)
+            except _Refused as e:
+                refusal = {"ok": False, "auth": False, "auth_error": e.code, "protocol": PROTOCOL_VERSION}
+                _send_msg(conn, {**refusal, "error": str(e)})
                 return
+            _send_msg(conn, _sign_reply(self.token, self._dispatch(request), nonce))
 
-            kind = msg.get("type")
-            if kind == "ping":
-                pong = {"ok": True, "result": "pong", "listener_version": LISTENER_VERSION}
-                _send_msg(conn, {**pong, "protocol": PROTOCOL_VERSION})
-            elif kind == "status":
-                _send_msg(conn, self.status())
-            elif kind == "run_script":
-                _send_msg(conn, self._run(msg))
-            elif kind == "result":
-                _send_msg(conn, self._result(msg))
-            else:
-                _send_msg(conn, {"ok": False, "error": f"unknown message type {kind!r}"})
+    def _open_request(self, msg):
+        """Verify a signed request; return its nonce and payload or raise _Refused."""
+        if (
+            not isinstance(msg, dict)
+            or not isinstance(msg.get("sig"), str)
+            or not isinstance(msg.get("body"), str)
+        ):
+            raise _Refused(
+                "unsigned",
+                f"unsigned request refused: this listener needs signed requests (protocol {PROTOCOL_VERSION}). "
+                "Update the ShapeBert MCP server.",
+            )
+        if msg.get("v") != PROTOCOL_VERSION:
+            raise _Refused(
+                "protocol", f"request uses protocol {msg.get('v')!r}, this listener {PROTOCOL_VERSION}"
+            )
+        ts, nonce = msg.get("ts"), msg.get("nonce")
+        if not isinstance(ts, int) or not isinstance(nonce, str) or not 16 <= len(nonce) <= 64:
+            raise _Refused("signature", "malformed signature fields")
+        expected = _signature(self.token, _REQUEST, PROTOCOL_VERSION, ts, nonce, msg["body"])
+        if not hmac.compare_digest(msg["sig"], expected):
+            raise _Refused("signature", f"wrong signature; server.py must read the token in {TOKEN_FILE}")
+        now = time.time()
+        if abs(now - ts) > CLOCK_WINDOW_S:
+            raise _Refused("stale", f"request timestamp is more than {CLOCK_WINDOW_S} s off this clock")
+        self._remember_nonce(nonce, ts, now)
+        request = json.loads(msg["body"])
+        if not isinstance(request, dict):
+            raise _Refused("signature", "signed body is not a JSON object")
+        return nonce, request
+
+    def _remember_nonce(self, nonce, ts, now):
+        with self.nonce_lock:
+            # A nonce whose timestamp left the window can go: a replay of it is stale.
+            self.nonces = {n: t for n, t in self.nonces.items() if t >= now - CLOCK_WINDOW_S}
+            if nonce in self.nonces:
+                raise _Refused("replayed", "request nonce already used")
+            if len(self.nonces) >= MAX_NONCES:
+                raise _Refused("busy", "too many signed requests in the last 30 s")
+            self.nonces[nonce] = ts
+
+    def _dispatch(self, msg):
+        kind = msg.get("type")
+        if kind == "ping":
+            return {
+                "ok": True,
+                "result": "pong",
+                "listener_version": LISTENER_VERSION,
+                "protocol": PROTOCOL_VERSION,
+            }
+        if kind == "status":
+            return self.status()
+        if kind == "run_script":
+            return self._run(msg)
+        if kind == "result":
+            return self._result(msg)
+        return {"ok": False, "error": f"unknown message type {kind!r}"}
 
     def _remember(self, job):
         with self.lock:

@@ -982,7 +982,7 @@
   },
   {
    "name": "doctor",
-   "description": "Setup report in one call. Returns whether FreeCAD is reachable and its listener\nversion, free-form code on or off, work folder, knowledge folders, which optional\nadd-ons (FCGear, SheetMetal, Fasteners) are installed with what each adds and its\ninstall steps, and whether the FEM programs (CalculiX, Gmsh) are found.",
+   "description": "Setup report in one call. Returns whether FreeCAD is reachable and its listener\nversion (with the fix when the listener in FreeCAD is out of date), free-form code on or off, work folder, knowledge folders, which optional\nadd-ons (FCGear, SheetMetal, Fasteners) are installed with what each adds and its\ninstall steps, and whether the FEM programs (CalculiX, Gmsh) are found.",
    "inputSchema": {
     "properties": {},
     "title": "doctorArguments",
