@@ -23,9 +23,11 @@ KINDS = {
     "mass": ("kg", "object"),
     "feature": (None, "faces or edges"),
 }
-COMMON_KEYS = {"id", "kind", "target", "value", "unit", "tolerance", "source_quote"}
+COMMON_KEYS = {"id", "kind", "target", "value", "unit", "op", "tolerance", "source_quote"}
 EXTRA_KEYS = {"size": {"axis"}, "mass": {"density_kg_m3"}}
 AXES = ("X", "Y", "Z")
+# eq: the value within the tolerance; min / max: a limit the measured value may reach.
+OPS = ("eq", "min", "max")
 
 
 class RequirementError(ValueError):
@@ -43,7 +45,7 @@ def _positive(value, what):
     return float(value)
 
 
-def _quote(value, where):
+def quote(value, where):
     if not isinstance(value, str) or not value.strip() or len(value) > MAX_QUOTE:
         raise RequirementError(
             f"{where}: source_quote must be the request's own words, 1 to {MAX_QUOTE} characters"
@@ -68,6 +70,15 @@ def _target(kind, target, where):
             return selectors.parse_edges(target), "edges"
     except selectors.SelectorError as e:
         raise RequirementError(f"{where}: target: {e}") from None
+
+
+def _op(check, where):
+    op = check.get("op", "eq")
+    if op not in OPS:
+        raise RequirementError(f"{where}: op must be one of {list(OPS)}, not {op!r}")
+    if op != "eq" and "tolerance" in check:
+        raise RequirementError(f"{where}: a {op} check is a limit; leave tolerance out")
+    return op
 
 
 def _tolerance(kind, check, value, where):
@@ -104,15 +115,18 @@ def check_one(check, index):
     out = {"id": check_id, "kind": kind, "target": target, "element": element}
     unit = KINDS[kind][0]
     if kind == "feature":
-        if any(k in check for k in ("value", "unit", "tolerance")):
-            raise RequirementError(f"{where}: a feature check has no value, unit or tolerance")
+        if any(k in check for k in ("value", "unit", "op", "tolerance")):
+            raise RequirementError(f"{where}: a feature check has no value, unit, op or tolerance")
     else:
         if check.get("unit") != unit:
             raise RequirementError(f"{where}: unit must be {unit!r} for a {kind} check")
         value = _positive(check.get("value"), f"{where}: value")
         if kind == "hole_count" and not value.is_integer():
             raise RequirementError(f"{where}: a hole count must be a whole number")
-        out.update(value=value, unit=unit, tolerance=_tolerance(kind, check, value, where))
+        op = _op(check, where)
+        out.update(value=value, unit=unit, op=op)
+        if op == "eq":
+            out["tolerance"] = _tolerance(kind, check, value, where)
     if kind == "size":
         axis = str(check.get("axis", "")).upper()
         if axis not in AXES:
@@ -120,7 +134,7 @@ def check_one(check, index):
         out["axis"] = axis
     if kind == "mass":
         out["density_kg_m3"] = _positive(check.get("density_kg_m3"), f"{where}: density_kg_m3")
-    out["source_quote"] = _quote(check.get("source_quote"), where)
+    out["source_quote"] = quote(check.get("source_quote"), where)
     return out
 
 

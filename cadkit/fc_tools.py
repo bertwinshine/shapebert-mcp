@@ -101,6 +101,12 @@ def _bbox(bb):
     }
 
 
+def _exact_bbox(shape):
+    # Once a shape is tessellated (shown in the GUI, meshed), BoundBox follows the mesh,
+    # whose chords cut inside arcs: a 160 mm disc measured 159.454 mm across Y.
+    return shape.optimalBoundingBox(False, False)
+
+
 def _has_shape(obj):
     # FEM mesh objects have a Shape property that links to the part instead, and FEM
     # analyses and datum lines carry an empty shape with an invalid bounding box.
@@ -138,7 +144,7 @@ def doc_info():
             row["valid"] = bool(o.Shape.isValid())
             row["solids"] = len(o.Shape.Solids)
             row["volume_mm3"] = _r(o.Shape.Volume)
-            row["size_mm"] = _size(o.Shape.BoundBox)
+            row["size_mm"] = _size(_exact_bbox(o.Shape))
         rows.append(row)
     return {"document": doc.Name, "file": doc.FileName or None, "objects": rows}
 
@@ -189,7 +195,7 @@ def measure(name, density_kg_m3=None):
         "object": name,
         "volume_mm3": _r(shape.Volume),
         "area_mm2": _r(shape.Area),
-        "bbox": _bbox(shape.BoundBox),
+        "bbox": _bbox(_exact_bbox(shape)),
         "solids": len(shape.Solids),
         "faces": len(shape.Faces),
         "edges": len(shape.Edges),
@@ -202,7 +208,7 @@ def measure(name, density_kg_m3=None):
 
     # Grouping cylinders by diameter is how callers check "4 holes of 6.6 mm";
     # the axis distances let them check a bolt circle as well.
-    center = shape.BoundBox.Center
+    center = _exact_bbox(shape).Center
     by_diameter, axes = {}, []
     for face in shape.Faces:
         surface = face.Surface
@@ -373,8 +379,35 @@ def _cell_content(value):
     return str(value)
 
 
-def set_parameters(params, sheet="Params"):
-    """Write ``params`` into a spreadsheet as aliased cells (bind with ``Params.<name>``).
+SOURCES_PROPERTY = "ShapeBertSources"
+# Quantities are shown in these units whatever the user's unit schema is.
+PARAM_UNITS = {"Length": "mm", "Angle": "deg", "Area": "mm^2", "Volume": "mm^3", "Mass": "kg"}
+
+
+def _stored_sources(sh):
+    import json
+
+    raw = sh.getPropertyByName(SOURCES_PROPERTY) if SOURCES_PROPERTY in sh.PropertiesList else ""
+    stored = json.loads(raw) if raw else {}
+    if not isinstance(stored, dict):
+        raise RuntimeError(f"{sh.Name}: the stored parameter sources are not an object")
+    return stored
+
+
+def _store_sources(sh, stored):
+    """Keep the sources as JSON on the sheet, so they are saved with the document."""
+    import json
+
+    if SOURCES_PROPERTY not in sh.PropertiesList:
+        sh.addProperty("App::PropertyString", SOURCES_PROPERTY, "ShapeBert", "Where each parameter came from")
+        sh.setEditorMode(SOURCES_PROPERTY, 1)
+    setattr(sh, SOURCES_PROPERTY, json.dumps(stored))
+
+
+def set_parameters(params, sources, sheet="Params"):
+    """Write ``params`` into a spreadsheet as aliased cells (bind with ``Params.<name>``),
+    each with its source. The cell content is stored next to the source, so a later
+    edit in the spreadsheet shows up as a user edit.
 
     Give lengths with units ("100 mm"); plain numbers stay unitless (counts, factors).
     """
@@ -391,7 +424,7 @@ def set_parameters(params, sheet="Params"):
     for key, value in params.items():
         row = rows.get(key)
         if row is None:
-            row = next_row
+            row = rows[key] = next_row
             next_row += 1
             sh.set(f"A{row}", key)
         sh.set(f"B{row}", _cell_content(value))
@@ -400,11 +433,17 @@ def set_parameters(params, sheet="Params"):
         except ValueError:  # unit names (W, V, N, mm) and reserved words
             rejected.append(key)
 
+    stored = _stored_sources(sh)
+    for key in params:
+        if key not in rejected:
+            stored[key] = {"source": sources[key], "content": sh.getContents(f"B{rows[key]}")}
+    _store_sources(sh, stored)
     sh.recompute()
     doc.recompute()
     out = {
         "sheet": sh.Name,
         "set": {k: v for k, v in params.items() if k not in rejected},
+        "sources": {k: sources[k]["type"] for k in params if k not in rejected},
         "objects_with_errors_after_recompute": [o.Name for o in doc.Objects if "Invalid" in (o.State or [])],
     }
     if rejected:
@@ -415,6 +454,46 @@ def set_parameters(params, sheet="Params"):
             "are unit names; use descriptive names like PlateW or PlateL."
         )
     return out
+
+
+def _param_value(value):
+    if hasattr(value, "Unit"):
+        unit = PARAM_UNITS.get(value.Unit.Type)
+        if unit:
+            return _r(float(value.getValueAs(unit)), 6), unit
+        return value.UserString, ""
+    if isinstance(value, (int, float)):
+        return value, ""
+    return str(value)[:100], ""
+
+
+def _cell_order(cell):
+    column, row = re.fullmatch(r"([A-Z]+)(\d+)", cell).groups()
+    return int(row), len(column), column
+
+
+def param_table(sheet="Params"):
+    """Every aliased cell of the sheet: value, unit, its content now and its stored source."""
+    sh = _obj(sheet)
+    if sh.TypeId != "Spreadsheet::Sheet":
+        raise RuntimeError(f"{sh.Name} is a {sh.TypeId}, not a spreadsheet; give the Params sheet")
+    stored = _stored_sources(sh)
+    rows = []
+    for cell in sorted(sh.getUsedCells(), key=_cell_order):
+        alias = sh.getAlias(cell)
+        if not alias:
+            continue
+        value, unit = _param_value(getattr(sh, alias))
+        rows.append(
+            {
+                "parameter": alias,
+                "value": value,
+                "unit": unit,
+                "content": sh.getContents(cell),
+                "stored": stored.get(alias),
+            }
+        )
+    return {"sheet": sh.Name, "label": sh.Label, "rows": rows}
 
 
 BOOLEAN_TYPES = {"cut": "Part::Cut", "fuse": "Part::MultiFuse", "common": "Part::MultiCommon"}
@@ -447,7 +526,7 @@ def _summary(obj):
         "valid": bool(shape.isValid()),
         "solids": len(shape.Solids),
         "volume_mm3": _r(shape.Volume),
-        "size_mm": _size(shape.BoundBox),
+        "size_mm": _size(_exact_bbox(shape)),
     }
 
 
@@ -739,7 +818,7 @@ def _measure_check(sel, obj, check):
     """(measured values, element names used) for one check."""
     shape, kind, target = obj.Shape, check["kind"], check["target"]
     if kind == "size":
-        bb = shape.BoundBox
+        bb = _exact_bbox(shape)
         return [{"X": bb.XLength, "Y": bb.YLength, "Z": bb.ZLength}[check["axis"]]], []
     if kind == "volume":
         return [shape.Volume], []
@@ -767,7 +846,41 @@ def _measure_check(sel, obj, check):
 def _passes(check, values):
     if check["kind"] == "feature":
         return True
-    return all(abs(v - check["value"]) <= check["tolerance"] + 1e-9 for v in values)
+    op, value = check.get("op", "eq"), check["value"]
+    if op == "min":
+        return all(v >= value - 1e-9 for v in values)
+    if op == "max":
+        return all(v <= value + 1e-9 for v in values)
+    return all(abs(v - value) <= check["tolerance"] + 1e-9 for v in values)
+
+
+def _nearest_holes(sel, shape, target):
+    """Hole sizes closest to the one a 'cylindrical faces radius/diameter N' target asks for."""
+    kind, value = target.split()[-2:]
+    wanted = float(value) * (2 if kind == "radius" else 1)
+    found = sel.holes(shape, range(1, len(shape.Faces) + 1))
+    counts = {}
+    for h in found:
+        counts[_r(h["diameter"])] = counts.get(_r(h["diameter"]), 0) + 1
+    nearest = sorted(counts, key=lambda d: (abs(d - wanted), d))[:3]
+    return [{"diameter_mm": d, "count": counts[d]} for d in nearest]
+
+
+def _no_matching_hole(sel, obj, check, error):
+    """A hole check whose size matches no hole: 0 holes, and the nearest sizes measured."""
+    nearest = _nearest_holes(sel, obj.Shape, check["target"])
+    row = {"nearest_holes": nearest}
+    if check["kind"] == "hole_count":
+        row.update(status="pass" if _passes(check, [0]) else "fail", measured=0)
+    elif nearest:
+        gap = abs(nearest[0]["diameter_mm"] - check["value"])
+        closest = [h["diameter_mm"] for h in nearest if abs(h["diameter_mm"] - check["value"]) == gap]
+        row.update(status="fail", measured=closest[0] if len(closest) == 1 else closest)
+    else:
+        row.update(status="fail", measured="no holes")
+    if row["status"] != "pass":
+        row.update(error=str(error), candidates=error.candidates)
+    return row
 
 
 def _shown(check, values):
@@ -784,13 +897,20 @@ def _verify_row(sel, obj, check):
     if check.get("kind") == "feature":
         row["required"] = "present"
     else:
-        row.update(required=check.get("value"), unit=check.get("unit"), tolerance=check.get("tolerance"))
+        op = check.get("op", "eq")
+        row.update(op=op, required=check.get("value"), unit=check.get("unit"))
+        if op == "eq":
+            row["tolerance"] = check.get("tolerance")
     try:
         values, used = _measure_check(sel, obj, check)
         row.update(status="pass" if _passes(check, values) else "fail", measured=_shown(check, values))
         row["used"] = used
     except sel.SelectorError as e:
-        row.update(status="fail", measured="not found", error=str(e), candidates=e.candidates)
+        sized = str(check.get("target", "")).startswith("cylindrical faces")
+        if check.get("kind") in ("hole_count", "hole_diameter") and sized:
+            row.update(_no_matching_hole(sel, obj, check, e))
+        else:
+            row.update(status="fail", measured="not found", error=str(e), candidates=e.candidates)
     except (KeyError, TypeError, ValueError, ZeroDivisionError, RuntimeError) as e:
         row.update(status="not_measured", error=f"{type(e).__name__}: {e}")
     return row
@@ -839,8 +959,8 @@ def compare_shapes(candidate, reference):
         "volume_candidate_mm3": _r(a.Volume),
         "volume_reference_mm3": _r(b.Volume),
         "volume_error_pct": _r(100 * (a.Volume - b.Volume) / b.Volume, 2) if b.Volume else None,
-        "bbox_candidate_mm": _size(a.BoundBox),
-        "bbox_reference_mm": _size(b.BoundBox),
+        "bbox_candidate_mm": _size(_exact_bbox(a)),
+        "bbox_reference_mm": _size(_exact_bbox(b)),
         "center_offset_mm": _r((center_a - center_b).Length),
     }
 
@@ -876,7 +996,8 @@ def _outer_faces(shape, z):
 
 def _volume_table(shape, slices):
     """Cumulative displaced volume and its first moment about the keel, per slice height."""
-    z0, z1 = shape.BoundBox.ZMin, shape.BoundBox.ZMax
+    bb = _exact_bbox(shape)
+    z0, z1 = bb.ZMin, bb.ZMax
     eps = (z1 - z0) * 1e-4  # slicing exactly at the keel or sheer gives degenerate faces
     heights = [z0 + eps + (z1 - z0 - 2 * eps) * i / slices for i in range(slices + 1)]
     areas = [sum(f.Area for f in _outer_faces(shape, z)) for z in heights]
@@ -919,7 +1040,7 @@ def _waterplane(shape, z):
         else:
             i_t += m.A22 + f.Area * (f.CenterOfMass.x - cx) ** 2
 
-    bb = Part.makeCompound(faces).BoundBox
+    bb = _exact_bbox(Part.makeCompound(faces))
     if length_along_x:
         return area, i_t, bb.XLength, bb.YLength
     return area, i_t, bb.YLength, bb.XLength
@@ -928,7 +1049,8 @@ def _waterplane(shape, z):
 def hydrostatics(name, mass_kg=None, draft_mm=None, rho_kg_m3=1000.0, kg_mm=None, slices=80):
     """Float a hull with Z up. Give ``mass_kg`` to find the draft, or ``draft_mm``."""
     shape = _shape(name)
-    z0, z1 = shape.BoundBox.ZMin, shape.BoundBox.ZMax
+    bb = _exact_bbox(shape)
+    z0, z1 = bb.ZMin, bb.ZMax
     heights, volume, moment = _volume_table(shape, slices)
     rho = float(rho_kg_m3)
     max_disp_kg = volume[-1] * 1e-9 * rho
@@ -1024,7 +1146,7 @@ def printability(name, max_overhang_deg=45.0, build_volume_mm=None, min_wall_mm=
     import Mesh
 
     shape = _shape(name)
-    bb = shape.BoundBox
+    bb = _exact_bbox(shape)
     mesh = Mesh.Mesh(shape.tessellate(max(0.05, bb.DiagonalLength / 400.0)))
     total, overhang, worst = _overhangs(mesh, bb.ZMin, float(max_overhang_deg))
     out = {
@@ -1205,7 +1327,7 @@ def sheet_profile(thickness, inner_radius, flanges, angles, length, name="SheetP
     doc.recompute()
 
     expected = thickness * layout["centre_line_length"] * length
-    bb = solid.BoundBox
+    bb = _exact_bbox(solid)
     return {
         "name": obj.Name,
         "valid": solid.isValid(),

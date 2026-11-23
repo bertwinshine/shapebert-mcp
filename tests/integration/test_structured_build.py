@@ -3,7 +3,7 @@
 import math
 
 import pytest
-from conftest import LIVE_PORT, listener_up
+from conftest import LIVE_PORT, listener_up, set_test_parameters
 from replies import load
 
 import server
@@ -36,7 +36,7 @@ def _cylinder(name: str, radius: float, height: float, radius_expr: str) -> None
 def _build_flange() -> dict:
     hole_d = load(server.calc_fasteners("bolt_hole", {"size": "M10"}))["clearance_hole_mm"]["chosen"]
     _ok(
-        server.set_parameters(
+        set_test_parameters(
             {
                 "FlangeD": "100 mm",
                 "BoreD": "50 mm",
@@ -75,14 +75,14 @@ def test_flange_builds_with_free_form_code_off():
 
 def test_flange_follows_params_changes():
     _build_flange()
-    _ok(server.set_parameters({"NHoles": 6, "Thk": "15 mm"}))
+    _ok(set_test_parameters({"NHoles": 6, "Thk": "15 mm"}))
     m = load(server.measure("Result"))
     assert m["cylindrical_faces_by_diameter_mm"]["11.0"] == 6
     assert m["volume_mm3"] == pytest.approx(math.pi / 4 * (100**2 - 50**2 - 6 * 11**2) * 15, rel=1e-6)
 
 
 def test_linear_slots_fuse_and_fillet():
-    _ok(server.set_parameters({"Thk": "10 mm"}))
+    _ok(set_test_parameters({"Thk": "10 mm"}))
     _ok(server.create_box(length=100, width=40, height=10, name="Plate"))
     _ok(server.bind_parameters("Plate", {"Height": "Params.Thk"}))
     _ok(server.create_cylinder(radius=3, height=10, name="Hole"))

@@ -41,7 +41,7 @@ cut to its end, and `get_job_result` pages through all of it.
 | Build | `create_box`, `create_cylinder`, `set_placement`, `bind_parameters`, `pattern_polar`, `pattern_linear`, `boolean`, `fillet_edges`, `chamfer_edges` |
 | Checking | `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `list_faces`, `get_view`, `compare_shapes`, `set_requirements`, `verify_requirements` |
 | Files | `create_document`, `open_document`, `save_document`, `export_model`, `import_model` |
-| Parameters | `set_parameters` |
+| Parameters | `set_parameters`, `explain_params` |
 | Builders | `build_spur_gear`, `build_ring_gear`, `build_sheet_profile` |
 | Domain checks | `hydrostatics`, `check_printability` |
 | FEA (CalculiX) | `fea_setup`, `fea_run`, `fea_results`: linear static (stress, displacement, reactions, safety factor), modal (natural frequencies), steady and transient heat conduction (temperatures, heat flow), thermal stress, linear buckling |
@@ -73,8 +73,23 @@ pitch circle, hole spacing, thickness, volume or mass, and features that have to
 there (a fillet, a chamfer). They are saved with the document. `verify_requirements`
 measures them on the current shape and lists each check as pass or fail with the
 measured and required values, so "6 x M10 holes on PCD 100" is checked again after
-every change instead of trusted. `create_document` and `open_document` start or
-reopen a part without free-form code.
+every change instead of trusted. A check can also be a limit: `op` `"min"` for "at
+least 3 mm wall", `"max"` for "under 2 kg" (the default `"eq"` takes a tolerance).
+When no hole has the asked-for diameter, the check fails with the nearest hole sizes
+measured (an M10 clearance hole drilled at 10.5 instead of 11 shows 10.5), not just
+"not found". Sizes are measured on the exact surfaces, not on the display mesh, which
+cuts inside arcs. The selector `inclined planar faces` finds chamfers, but on a part
+built at an angle it also matches flat faces that are not chamfers.
+`create_document` and `open_document` start or reopen a part without free-form code.
+
+Every value in the Params spreadsheet carries its source: `set_parameters` takes one
+per parameter, either the request's own words (`prompt`), a knowledge file and the
+heading of the rule (`knowledge`, both checked to exist), a calculator and its inputs
+(`calc`), or a `default` and where it is defined. A change the user asks for later is
+a `user edit`. The sources are saved with the document. `explain_params` lists each
+parameter with its value, unit, source and detail, shows a value changed by hand in
+the spreadsheet as a user edit, and lists every default as an assumption, so a
+report says plainly which numbers were not given.
 
 `run_freecad_code` runs each script in a fresh namespace and returns the result,
 any printed output, and a summary of every object the script created. If the
@@ -461,7 +476,7 @@ you before the risky ones.
 |---|---|
 | `ping_freecad`, `get_status`, `doctor`, `get_job_result` | Read-only |
 | `get_document_info`, `inspect_object`, `list_faces`, `measure` | Read-only |
-| `verify_requirements` | Read-only |
+| `verify_requirements`, `explain_params` | Read-only |
 | `check_geometry`, `check_model_structure`, `get_view` | Read-only |
 | `compare_shapes`, `hydrostatics`, `check_printability` | Read-only |
 | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld` | Read-only |

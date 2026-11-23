@@ -25,6 +25,7 @@ from cadkit import (  # noqa: E402
     build_checks,
     fea,
     protocol,
+    provenance,
     safety,  # noqa: E402
     sheet_profile,
 )
@@ -60,7 +61,7 @@ try:
     _d.recompute()
     _shaped = lambda o: hasattr(getattr(o, "Shape", None), "isNull") and not o.Shape.isNull()
     _tops = [o for o in _d.Objects if _shaped(o) and not any(_shaped(p) for p in o.InList)]
-    _bb = _tops[0].Shape.BoundBox if len(_tops) == 1 else None
+    _bb = _tops[0].Shape.optimalBoundingBox(False, False) if len(_tops) == 1 else None
     result = {{
         "valid": bool(_tops) and all(o.Shape.isValid() for o in _tops),
         "objects": len(_tops),
@@ -119,6 +120,7 @@ READ_ONLY_TOOLS = {
     "inspect_object",
     "list_faces",
     "verify_requirements",
+    "explain_params",
     "measure",
     "check_geometry",
     "get_view",
@@ -612,10 +614,14 @@ def set_requirements(name: str, requirements: list[dict]) -> str:
                             or unit (a fillet: "cylindrical faces radius 2"; a chamfer:
                             "inclined planar faces")
     Selectors are those of list_faces and fillet_edges. Holes are internal cylinders; a
-    hole split into several faces counts once. tolerance: optional, default 0.01 mm,
-    1 % for volume and mass; counts are exact. Unknown kinds or keys, numbers that are not
-    finite and positive, wrong units and selectors that do not parse are refused.
-    Returns the stored check ids."""
+    hole split into several faces counts once.
+    op: optional, for every kind except feature. "eq" (default): the measured value has to
+    be within tolerance of value; tolerance is optional, default 0.01 mm, 1 % for volume and
+    mass, and counts are exact. "min": at least value ("at least 3 mm wall": thickness, op
+    "min", value 3). "max": at most value ("under 2 kg": mass, op "max", value 2). min and
+    max take no tolerance.
+    Unknown kinds, ops or keys, numbers that are not finite and positive, wrong units and
+    selectors that do not parse are refused. Returns the stored check ids."""
     try:
         checked = reqs.check_all(requirements)
         ref = build_checks.object_ref(name)
@@ -627,11 +633,14 @@ def set_requirements(name: str, requirements: list[dict]) -> str:
 @tool(data=FREECAD_DATA)
 def verify_requirements(name: str) -> str:
     """Measure every check stored with set_requirements on the object's current shape.
-    Returns all_pass, counts of pass / fail / not_measured, and per check: status,
-    measured vs required value with unit and tolerance, the faces or edges used and the
-    source_quote. A selector that matches nothing fails with the candidate faces; a check
-    that cannot be measured (e.g. a pitch circle of holes on a straight line) is
-    not_measured with the reason. missing_features lists the feature checks that failed."""
+    Returns all_pass, counts of pass / fail / not_measured, and per check: status, op,
+    measured vs required value with unit (and tolerance for eq), the faces or edges used
+    and the source_quote. A selector that matches nothing fails with the candidate faces.
+    When no hole has the diameter a hole_count or hole_diameter target asks for, the count
+    measures 0 and the diameter check fails with the nearest hole diameter as measured;
+    nearest_holes lists the closest hole sizes with their counts. A check that cannot be
+    measured (e.g. a pitch circle of holes on a straight line) is not_measured with the
+    reason. missing_features lists the feature checks that failed."""
     return _checked(lambda: _fc("verify_requirements", name=build_checks.object_ref(name)))
 
 
@@ -732,16 +741,53 @@ def save_document(path: str | None = None) -> str:
 
 
 @tool(data=FREECAD_DATA)
-def set_parameters(params: dict, sheet: str = "Params") -> str:
+def set_parameters(params: dict, sources: dict[str, dict], sheet: str = "Params") -> str:
     """Create/update spreadsheet parameters with aliases, e.g.
     {"PlateL": "120 mm", "Thk": "4 mm", "NHoles": 6}. Give lengths and angles as strings
     WITH units ("120 mm", "30 deg") so expressions like Params.PlateL + 2 mm work; plain
     numbers are unitless and suit counts and factors.
     Geometry bound to an alias with an expression, e.g.
     box.setExpression('Length', 'Params.PlateL'), rebuilds when the value changes.
-    Returns objects that broke after the recompute, and any alias names FreeCAD
-    refused (single letters like W or V are unit names)."""
-    return _json(_fc("set_parameters", params=params, sheet=sheet))
+
+    sources: where each value came from, one per parameter being set, stored with the
+    sheet and replaced whenever the value is set again:
+      {"type": "prompt", "source_quote": "12 mm thick"}  the request's exact words, one line
+      {"type": "knowledge", "file": "conventions.md", "rule": "Fillets and chamfers"}
+          a knowledge file and one of its headings; both have to exist
+      {"type": "calc", "tool": "calc_fasteners", "calc": "bolt_hole", "inputs": {"size": "M10"}}
+          the calculator and the arguments it was called with
+      {"type": "default", "where": "conventions.md: 1 mm fillet when no size is given"}
+          a value that is none of these, and where that default is defined
+      {"type": "user edit", "source_quote": "make it 15 mm thick"}  a change the user asked
+          for after the part was built
+    A parameter without a source, unknown types or keys, a knowledge file or heading that
+    does not exist and inputs that do not fit the calculator are refused.
+    Returns the source types stored, objects that broke after the recompute, and any alias
+    names FreeCAD refused (single letters like W or V are unit names)."""
+    try:
+        checked = provenance.check_sources(params, sources)
+    except ValueError as e:
+        return _refused(str(e))
+    return _json(_fc("set_parameters", params=params, sources=checked, sheet=sheet))
+
+
+@tool(data=FREECAD_DATA)
+def explain_params(name: str = "Params") -> str:
+    """Where every value in a Params spreadsheet (by Name or Label) came from: a table of
+    parameter, value, unit (mm, deg, or none for counts and factors), source type
+    (prompt, knowledge, calc, default, user edit) and detail (the quote, knowledge file and
+    rule, calculator and inputs, or where the default is defined).
+    A value changed in the spreadsheet after set_parameters stored it shows as "user edit"
+    with the old and new content; a value set without set_parameters shows as "unrecorded".
+    assumptions lists every default and unrecorded value."""
+
+    def build():
+        table = _fc("param_table", sheet=build_checks.object_ref(name))
+        if table.get("ok") is False:
+            return table
+        return {"sheet": table["sheet"], "label": table["label"], **provenance.explain(table["rows"])}
+
+    return _checked(build)
 
 
 def _checked(build):
@@ -1463,13 +1509,15 @@ def design_part(description: str) -> str:
         "Follow the working rules: 1) match_domain and read the domain file + conventions; "
         "2) search_examples and adapt the closest one; 3) ask for any missing CRITICAL value; "
         "4) run the domain calculators (calc_*) before choosing dimensions; 5) create_document, "
-        "then build from a Params spreadsheet with the structured tools (create_box, "
+        "then build from a Params spreadsheet (set_parameters with a source for every value: "
+        "prompt quote, knowledge rule, calc, or default) with the structured tools (create_box, "
         "create_cylinder, set_placement, bind_parameters, pattern_polar, pattern_linear, boolean, "
         "fillet_edges, chamfer_edges); run_freecad_code only for a step no tool can do; "
         "6) set_requirements from the numbers and features in the request (quote them), then "
         "verify_requirements, and fix every fail; 7) check_geometry, measure and get_view; "
         "8) run the domain checks (hydrostatics / check_printability / calc checks); "
-        "9) report the requirement table and every value used, tagged given/default/calculated."
+        "9) report the requirement table and the explain_params table, and end with every "
+        "default value listed as an assumption."
     )
 
 
