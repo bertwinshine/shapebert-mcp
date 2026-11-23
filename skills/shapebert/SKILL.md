@@ -16,8 +16,13 @@ knowledge base, the exact calculators and the checks - use them every time.
   `bind_parameters`, `pattern_polar`, `pattern_linear`, `boolean`, `fillet_edges`,
   `chamfer_edges`
 - Verify: `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `list_faces`,
-  `get_view`, `compare_shapes`
-- Files: `export_model`, `import_model`, `save_document`
+  `get_view`, `compare_shapes`, `set_requirements`, `verify_requirements`
+- Documents and files: `create_document` (a new part starts here), `open_document`,
+  `save_document`, `export_model`, `import_model`
+- `run_freecad_code` opens an approval dialog in FreeCAD for every script. Use it only
+  for a step no ShapeBert tool can do, and tell the user which step and why first.
+  A normal build (documents, Params, primitives, patterns, booleans, fillets, checks)
+  needs none.
 - Parametric: `set_parameters` (Params spreadsheet)
 - Builders: `build_spur_gear`, `build_ring_gear` (exact involute teeth; never draw tooth
   curves yourself), `build_sheet_profile` (bent L/U/Z/hat profiles with the flat length)
@@ -124,8 +129,19 @@ values", follow conventions.md / the domain defaults and report every value chos
    on base planes, sizes from Params, the final feature itself labelled `Result`
    (never a static copy of its shape). If a fix fails twice, rebuild cleanly instead
    of patching on top.
+6. A new part goes in its own document: `create_document("Bracket")`, then build.
+   Don't put it next to an earlier part in the open document.
 
 ## Verify, then report
+0. Requirements from the request: after every build, call `set_requirements` on the
+   final object with one check per number or feature in the user's request, each
+   with `source_quote` = the user's exact words ("6 x M10 holes", "PCD 100", "12 mm
+   thick", "chamfer the top edges"). Values you chose yourself (defaults, calculator
+   results) are not requirements; report those as before. Then `verify_requirements`.
+   On any fail, fix the part and verify again. Never report a part as done while a
+   check fails or a requested feature is listed as missing. If a request item has no
+   check kind, or a check comes back `not_measured`, say plainly which ones were not
+   measured and why.
 1. `check_geometry` on the final object - fix every issue before claiming success.
    `check_model_structure` - fix what it lists; aim for a score of 80 or more.
 2. `measure` - compare volume, size, hole count per diameter, mass with the target.
@@ -136,8 +152,10 @@ values", follow conventions.md / the domain defaults and report every value chos
    matches what the user described.
 4. Domain checks: boats -> `hydrostatics` with the loaded mass (and kg_mm for GM);
    printed parts -> `check_printability`; gears/welds/shafts -> calculator checks.
-5. Report: key numbers, each tagged given / default / calculated, the final volume
-   or mass, the checks passed/failed, and what still needs a human or certified check.
+5. Report: the requirement table from `verify_requirements` (check, request quote,
+   required, measured, pass/fail), then the other key numbers, each tagged given /
+   default / calculated, the final volume or mass, the other checks passed/failed, and
+   what still needs a human or certified check.
 
 ## FEA checks
 - Material, fixed faces and loads (or the frequency of interest for a modal check) are

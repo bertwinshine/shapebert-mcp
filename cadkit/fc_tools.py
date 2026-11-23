@@ -313,6 +313,32 @@ def export_shapes(names, path):
     return {"path": path, "objects": [o.Name for o in objs], "bytes": os.path.getsize(path)}
 
 
+def _activate(doc):
+    App.setActiveDocument(doc.Name)
+    if App.GuiUp:
+        import FreeCADGui as Gui
+
+        Gui.setActiveDocument(doc.Name)
+
+
+def create_document(name):
+    doc = App.newDocument(name)
+    _activate(doc)
+    return {"document": doc.Name, "note": f"{doc.Name} is now the active document"}
+
+
+def open_document(path):
+    for doc in App.listDocuments().values():
+        if doc.FileName and os.path.normcase(os.path.abspath(doc.FileName)) == os.path.normcase(path):
+            _activate(doc)
+            return {"document": doc.Name, "file": doc.FileName, "already_open": True}
+    if not os.path.isfile(path):
+        raise RuntimeError(f"No file {path}")
+    doc = App.openDocument(path)
+    _activate(doc)
+    return {"document": doc.Name, "file": doc.FileName, "objects": len(doc.Objects)}
+
+
 def save_document(path=None):
     doc = _doc()
     if path:
@@ -583,6 +609,222 @@ def list_faces(name, limit=300):
     if len(faces) > limit:
         out["note"] = f"only the first {limit} of {len(faces)} faces are listed"
     return out
+
+
+REQUIREMENTS_PROPERTY = "ShapeBertRequirements"
+
+
+def set_requirements(name, checks):
+    """Store the checks as JSON on the object, where they are saved with the document."""
+    import json
+
+    obj = _obj(name)
+    if not _has_shape(obj):
+        raise RuntimeError(f"{obj.Name} has no shape to check")
+    if REQUIREMENTS_PROPERTY not in obj.PropertiesList:
+        obj.addProperty(
+            "App::PropertyString", REQUIREMENTS_PROPERTY, "ShapeBert", "Checks written from the request"
+        )
+        obj.setEditorMode(REQUIREMENTS_PROPERTY, 1)
+    setattr(obj, REQUIREMENTS_PROPERTY, json.dumps(checks))
+    return {"name": obj.Name, "label": obj.Label, "stored": len(checks), "ids": [c["id"] for c in checks]}
+
+
+def _hole_set(sel, shape, target):
+    found = sel.holes(shape, sel.resolve_face(shape, target))
+    if not found:
+        raise sel.SelectorError(f"{target!r} matches no hole (internal cylindrical face)")
+    return found
+
+
+def _plane_basis(axis):
+    helper = App.Vector(1, 0, 0) if abs(axis.x) < 0.9 else App.Vector(0, 1, 0)
+    u = axis.cross(helper).normalize()
+    return u, axis.cross(u)
+
+
+def _circle_fit(points):
+    """Centre of the circle through 2D points (least squares, Kasa fit)."""
+    if len(points) == 2:
+        (x1, y1), (x2, y2) = points
+        return (x1 + x2) / 2, (y1 + y2) / 2
+    sums = [[0.0] * 3 for _ in range(3)]
+    rhs = [0.0] * 3
+    for x, y in points:
+        row = (x, y, 1.0)
+        for i in range(3):
+            for j in range(3):
+                sums[i][j] += row[i] * row[j]
+            rhs[i] += row[i] * (x * x + y * y)
+    a, b, _ = _solve3(sums, rhs)
+    return a / 2, b / 2
+
+
+def _det3(a):
+    return (
+        a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+        - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+        + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+    )
+
+
+def _solve3(m, v):
+    d = _det3(m)
+    if abs(d) < 1e-9 * max(1.0, abs(m[0][0] * m[1][1])):
+        raise RuntimeError("the holes lie on a straight line, so they have no pitch circle")
+    out = []
+    for k in range(3):
+        mk = [row[:] for row in m]
+        for i in range(3):
+            mk[i][k] = v[i]
+        out.append(_det3(mk) / d)
+    return out
+
+
+def _parallel(found):
+    axis = found[0]["axis"]
+    if any(h["axis"].dot(axis) < 1 - 1e-6 for h in found):
+        raise RuntimeError("the holes are not parallel")
+    return axis
+
+
+def _pcd(found):
+    if len(found) < 2:
+        raise RuntimeError(f"a pitch circle needs at least 2 holes; found {len(found)}")
+    u, v = _plane_basis(_parallel(found))
+    points = [(h["axis_point"].dot(u), h["axis_point"].dot(v)) for h in found]
+    centre = _circle_fit(points)
+    return [2 * math.dist(centre, p) for p in points]
+
+
+def _spacing(found):
+    if len(found) < 2:
+        raise RuntimeError(f"a hole spacing needs at least 2 holes; found {len(found)}")
+    _parallel(found)
+    points = [h["axis_point"] for h in found]
+    return [min((p - q).Length for j, q in enumerate(points) if j != i) for i, p in enumerate(points)]
+
+
+def _thickness(sel, shape, target):
+    """Distance from each target face to the nearest flat face behind it, facing the other way."""
+    values, used = [], []
+    for n in sel.resolve_face(shape, target):
+        face = shape.Faces[n - 1]
+        if sel.describe_face(face, n)["type"] != "plane":
+            raise RuntimeError(f"Face{n} is not flat; a thickness is measured between flat faces")
+        normal = face.normalAt(*_mid_uv(face))
+        behind = []
+        for i, other in enumerate(shape.Faces, 1):
+            if i == n or other.Surface.__class__.__name__ != "Plane":
+                continue
+            if other.normalAt(*_mid_uv(other)).dot(normal) > -(1 - sel.DIR_TOL):
+                continue
+            depth = (face.CenterOfMass - other.CenterOfMass).dot(normal)
+            if depth > sel.LIN_TOL_MM:
+                behind.append((depth, i))
+        if not behind:
+            raise RuntimeError(f"Face{n} has no opposite flat face behind it")
+        depth, opposite = min(behind)
+        values.append(depth)
+        used += [f"Face{n}", f"Face{opposite}"]
+    return values, used
+
+
+def _mid_uv(face):
+    u0, u1, v0, v1 = face.ParameterRange
+    return (u0 + u1) / 2, (v0 + v1) / 2
+
+
+def _measure_check(sel, obj, check):
+    """(measured values, element names used) for one check."""
+    shape, kind, target = obj.Shape, check["kind"], check["target"]
+    if kind == "size":
+        bb = shape.BoundBox
+        return [{"X": bb.XLength, "Y": bb.YLength, "Z": bb.ZLength}[check["axis"]]], []
+    if kind == "volume":
+        return [shape.Volume], []
+    if kind == "mass":
+        return [shape.Volume * 1e-9 * check["density_kg_m3"]], []
+    if kind == "thickness":
+        return _thickness(sel, shape, target)
+    if kind == "feature":
+        if check["element"] == "edges":
+            return [], [f"Edge{n}" for n in sel.resolve_edges(shape, [target])]
+        return [], [f"Face{n}" for n in sel.resolve_face(shape, target)]
+    found = _hole_set(sel, shape, target)
+    used = [f for h in found for f in h["faces"]]
+    if kind == "hole_count":
+        return [len(found)], used
+    if kind == "hole_diameter":
+        return [h["diameter"] for h in found], used
+    if kind == "pitch_circle_diameter":
+        return _pcd(found), used
+    if kind == "hole_spacing":
+        return _spacing(found), used
+    raise ValueError(f"unknown kind {kind!r}")
+
+
+def _passes(check, values):
+    if check["kind"] == "feature":
+        return True
+    return all(abs(v - check["value"]) <= check["tolerance"] + 1e-9 for v in values)
+
+
+def _shown(check, values):
+    if check["kind"] == "feature":
+        return "present"
+    if check["kind"] == "hole_count":
+        return int(values[0])
+    rounded = sorted({_r(v, 6 if check["kind"] == "mass" else 3) for v in values})
+    return rounded[0] if len(rounded) == 1 else rounded
+
+
+def _verify_row(sel, obj, check):
+    row = {k: check.get(k) for k in ("id", "kind", "target", "axis", "source_quote") if k in check}
+    if check.get("kind") == "feature":
+        row["required"] = "present"
+    else:
+        row.update(required=check.get("value"), unit=check.get("unit"), tolerance=check.get("tolerance"))
+    try:
+        values, used = _measure_check(sel, obj, check)
+        row.update(status="pass" if _passes(check, values) else "fail", measured=_shown(check, values))
+        row["used"] = used
+    except sel.SelectorError as e:
+        row.update(status="fail", measured="not found", error=str(e), candidates=e.candidates)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError, RuntimeError) as e:
+        row.update(status="not_measured", error=f"{type(e).__name__}: {e}")
+    return row
+
+
+def verify_requirements(name):
+    """Measure every stored check on the object's current shape."""
+    import json
+
+    sel = _selectors()
+    obj = _obj(name)
+    raw = obj.getPropertyByName(REQUIREMENTS_PROPERTY) if REQUIREMENTS_PROPERTY in obj.PropertiesList else ""
+    if not raw:
+        raise RuntimeError(f"{obj.Name} has no requirements; write them with set_requirements first")
+    if not _has_shape(obj):
+        raise RuntimeError(f"{obj.Name} has no shape to check")
+    checks = json.loads(raw)
+    if not isinstance(checks, list) or not all(isinstance(c, dict) for c in checks):
+        raise RuntimeError(f"{obj.Name}: the stored requirements are not a list of checks")
+    rows = [_verify_row(sel, obj, check) for check in checks]
+    missing = [
+        {"id": r.get("id"), "target": r.get("target"), "source_quote": r.get("source_quote")}
+        for r in rows
+        if r.get("kind") == "feature" and r["status"] != "pass"
+    ]
+    counts = {s: sum(r["status"] == s for r in rows) for s in ("pass", "fail", "not_measured")}
+    return {
+        "name": obj.Name,
+        "label": obj.Label,
+        "all_pass": counts["pass"] == len(rows),
+        "counts": counts,
+        "checks": rows,
+        "missing_features": missing,
+    }
 
 
 def compare_shapes(candidate, reference):

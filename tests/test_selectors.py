@@ -24,6 +24,8 @@ server = pytest.importorskip("server")
         ("largest planar face", "largest planar face"),
         ("Largest flat face", "largest planar face"),
         ("bore", "bore"),
+        ("Inclined faces", "inclined planar faces"),
+        ("inclined planar faces", "inclined planar faces"),
         ("the bore", "bore"),
         ("cylindrical faces radius 4", "cylindrical faces radius 4"),
         ("cylindrical faces radius 4.0 mm", "cylindrical faces radius 4"),

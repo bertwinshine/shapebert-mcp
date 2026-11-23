@@ -39,8 +39,8 @@ cut to its end, and `get_job_result` pages through all of it.
 |---|---|
 | Bridge | `ping_freecad`, `get_status`, `doctor`, `run_freecad_code`, `get_job_result`, `get_document_info` |
 | Build | `create_box`, `create_cylinder`, `set_placement`, `bind_parameters`, `pattern_polar`, `pattern_linear`, `boolean`, `fillet_edges`, `chamfer_edges` |
-| Checking | `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `list_faces`, `get_view`, `compare_shapes` |
-| Files | `export_model`, `import_model`, `save_document` |
+| Checking | `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `list_faces`, `get_view`, `compare_shapes`, `set_requirements`, `verify_requirements` |
+| Files | `create_document`, `open_document`, `save_document`, `export_model`, `import_model` |
 | Parameters | `set_parameters` |
 | Builders | `build_spur_gear`, `build_ring_gear`, `build_sheet_profile` |
 | Domain checks | `hydrostatics`, `check_printability` |
@@ -66,6 +66,15 @@ its type, centre, normal or axis and radius, and area. Documents with fillets ma
 from edge numbers still open and rebuild as before. A selector fillet needs
 ShapeBert's `shapebert_selectors.py` to rebuild; without it FreeCAD keeps the last
 shape.
+
+`set_requirements` stores the numbers and features of the request as checks on the
+part, each with the request's own words: overall size, hole count, hole diameter,
+pitch circle, hole spacing, thickness, volume or mass, and features that have to be
+there (a fillet, a chamfer). They are saved with the document. `verify_requirements`
+measures them on the current shape and lists each check as pass or fail with the
+measured and required values, so "6 x M10 holes on PCD 100" is checked again after
+every change instead of trusted. `create_document` and `open_document` start or
+reopen a part without free-form code.
 
 `run_freecad_code` runs each script in a fresh namespace and returns the result,
 any printed output, and a summary of every object the script created. If the
@@ -452,6 +461,7 @@ you before the risky ones.
 |---|---|
 | `ping_freecad`, `get_status`, `doctor`, `get_job_result` | Read-only |
 | `get_document_info`, `inspect_object`, `list_faces`, `measure` | Read-only |
+| `verify_requirements` | Read-only |
 | `check_geometry`, `check_model_structure`, `get_view` | Read-only |
 | `compare_shapes`, `hydrostatics`, `check_printability` | Read-only |
 | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld` | Read-only |
@@ -463,6 +473,7 @@ you before the risky ones.
 | `pattern_polar`, `pattern_linear`, `fillet_edges`, `chamfer_edges` | Changes model |
 | `build_spur_gear`, `build_ring_gear`, `build_sheet_profile` | Changes model |
 | `set_parameters`, `import_model` | Changes model |
+| `create_document`, `open_document`, `set_requirements` | Changes model |
 | `log_correction` | Changes model (appends to the correction log) |
 | `run_freecad_code` | Can overwrite (runs any code, off by default) |
 | `export_model`, `save_document` | Can overwrite (files in the work folder) |

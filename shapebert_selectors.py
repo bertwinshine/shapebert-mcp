@@ -39,7 +39,8 @@ NUMBER = r"(\d+(?:\.\d*)?|\.\d+)"
 CYLINDER = re.compile(rf"(?:cylindrical faces?|cylinders?) (radius|diameter) {NUMBER}(?: ?mm)?")
 FACE_FORMS = (
     "top, bottom, +X, -X, +Y, -Y, +Z, -Z (optionally followed by 'face' or 'side'), "
-    "'largest planar face', 'cylindrical faces radius 4', 'cylindrical faces diameter 8', 'bore'"
+    "'largest planar face', 'cylindrical faces radius 4', 'cylindrical faces diameter 8', 'bore', "
+    "'inclined planar faces'"
 )
 EDGE_FORMS = (
     "all, top, bottom, vertical, 'vertical edges', 'concave edges', "
@@ -78,6 +79,8 @@ def parse_face(text, allow_names=False):
         return "largest planar face"
     if words in ("bore", "the bore"):
         return "bore"
+    if words in ("inclined planar faces", "inclined faces", "inclined planar face"):
+        return "inclined planar faces"
     cyl = CYLINDER.fullmatch(words)
     if cyl:
         value = float(cyl.group(2))
@@ -267,20 +270,60 @@ def _cylinders(shape, kind, value):
     return found
 
 
+def _group_lines(indexed):
+    """(number, face) pairs grouped by cylinder: faces on one axis line with one radius."""
+    lines = []
+    for i, f in indexed:
+        for line in lines:
+            if _same_line(line[0][1], f) and _close(line[0][1].Surface.Radius, f.Surface.Radius):
+                line.append((i, f))
+                break
+        else:
+            lines.append([(i, f)])
+    return lines
+
+
+def holes(shape, numbers):
+    """The holes among the given faces: internal cylinders, one entry per hole even
+    when FreeCAD splits its wall into several faces. Each has its face names,
+    diameter, axis and axis point (where the axis passes closest to the origin)."""
+    walls = [(n, shape.Faces[n - 1]) for n in numbers]
+    walls = [(n, f) for n, f in walls if _surface_kind(f) == "cylinder" and _is_internal(f)]
+    out = []
+    for line in _group_lines(walls):
+        surface = line[0][1].Surface
+        axis = _canonical_axis(surface.Axis)
+        out.append(
+            {
+                "faces": [f"Face{n}" for n, _ in line],
+                "diameter": 2 * surface.Radius,
+                "axis": axis,
+                "axis_point": _axis_point(surface.Center, axis),
+            }
+        )
+    return out
+
+
+def _inclined(shape):
+    import FreeCAD as App
+
+    axes = [App.Vector(*v) for v in SIDE_VECTORS.values()]
+    planes = _faces_of(shape, lambda f: _surface_kind(f) == "plane")
+    found = [i for i, f in planes if all(_mid_normal(f).dot(a) < 1 - DIR_TOL for a in axes)]
+    if not found:
+        raise SelectorError(
+            "no flat face is inclined: every flat face faces along X, Y or Z (no chamfer)",
+            _summaries(shape, planes),
+        )
+    return found
+
+
 def _bore(shape):
     holes = _faces_of(shape, lambda f: _surface_kind(f) == "cylinder" and _is_internal(f))
     if not holes:
         raise SelectorError("the part has no bore (no internal cylindrical face)")
     largest = max(f.Surface.Radius for _, f in holes)
-    widest = [(i, f) for i, f in holes if _close(f.Surface.Radius, largest)]
-    lines = []
-    for i, f in widest:
-        for line in lines:
-            if _same_line(line[0][1], f):
-                line.append((i, f))
-                break
-        else:
-            lines.append([(i, f)])
+    lines = _group_lines([(i, f) for i, f in holes if _close(f.Surface.Radius, largest)])
     if len(lines) > 1:
         raise SelectorError(
             f"'bore' is ambiguous: {len(lines)} separate holes have the largest radius "
@@ -304,6 +347,8 @@ def resolve_face(shape, selector):
         return _largest_planar(shape)
     if selector == "bore":
         return _bore(shape)
+    if selector == "inclined planar faces":
+        return _inclined(shape)
     kind, value = selector.split()[-2:]
     return _cylinders(shape, kind, float(value))
 
