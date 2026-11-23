@@ -402,6 +402,10 @@ class RoundEdges:
         obj.Size = size
         obj.Selectors = list(selectors)
         obj.Proxy = self
+        if obj.ViewObject is not None:
+            # 0 selects FreeCAD's own view provider; without a Proxy the GUI sets no
+            # display mode and the result is never drawn.
+            obj.ViewObject.Proxy = 0
 
     def execute(self, obj):
         shape = obj.Base.Shape
