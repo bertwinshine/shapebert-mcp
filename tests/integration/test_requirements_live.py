@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 
 import pytest
-from conftest import LIVE_PORT, listener_up
+from conftest import LIVE_PORT, listener_up, set_test_parameters
 from replies import load
 
 import server
@@ -49,22 +49,20 @@ def _rows(name: str) -> tuple[dict, dict]:
     return report, {row["id"]: row for row in report["checks"]}
 
 
-def _flange() -> None:
+def _flange(sources: dict | None = None, hole_d: float | None = None) -> None:
     """'Flange 140 mm, bore 50, 6 x M10 holes on PCD 100, 12 mm thick.'"""
-    hole_d = load(server.calc_fasteners("bolt_hole", {"size": "M10"}))["clearance_hole_mm"]["chosen"]
-    assert hole_d == 11
-    _ok(
-        server.set_parameters(
-            {
-                "FlangeD": "140 mm",
-                "BoreD": "50 mm",
-                "Thk": "12 mm",
-                "PCD": "100 mm",
-                "HoleD": f"{hole_d} mm",
-                "NHoles": 6,
-            }
-        )
-    )
+    if hole_d is None:
+        hole_d = load(server.calc_fasteners("bolt_hole", {"size": "M10"}))["clearance_hole_mm"]["chosen"]
+        assert hole_d == 11
+    params = {
+        "FlangeD": "140 mm",
+        "BoreD": "50 mm",
+        "Thk": "12 mm",
+        "PCD": "100 mm",
+        "HoleD": f"{hole_d} mm",
+        "NHoles": 6,
+    }
+    _ok(server.set_parameters(params, sources) if sources else set_test_parameters(params))
     for name, radius, expr in (
         ("Disk", 70, "Params.FlangeD / 2"),
         ("Bore", 25, "Params.BoreD / 2"),
@@ -127,7 +125,7 @@ def test_flange_meets_its_request_and_fails_when_holes_go_missing():
     assert len(rows["thk"]["used"]) == 2
     assert rows["holes"]["source_quote"] == "6 x M10 holes"
 
-    _ok(server.set_parameters({"NHoles": 4}))
+    _ok(set_test_parameters({"NHoles": 4}))
     report, rows = _rows("Result")
     assert not report["all_pass"] and report["counts"] == {"pass": 4, "fail": 1, "not_measured": 0}
     holes = rows["holes"]
@@ -139,11 +137,14 @@ def test_a_selector_that_matches_nothing_fails_with_candidates():
     _new_document("Miss")
     _flange()
     wrong = {**FLANGE_CHECKS[0], "id": "m12", "target": "cylindrical faces diameter 13"}
-    _ok(server.set_requirements("Result", [wrong]))
+    edge = {"id": "edge", "kind": "feature", "target": "bore", "source_quote": "bore"}
+    _ok(server.set_requirements("Result", [wrong, {**edge, "target": "cylindrical faces radius 9"}]))
     report, rows = _rows("Result")
-    assert rows["m12"]["status"] == "fail" and rows["m12"]["measured"] == "not found"
+    assert rows["m12"]["status"] == "fail" and rows["m12"]["measured"] == 0
+    assert rows["m12"]["nearest_holes"][0] == {"diameter_mm": 11, "count": 6}
     assert "5.5" in rows["m12"]["error"] and rows["m12"]["candidates"]
-    assert report["counts"]["fail"] == 1
+    assert rows["edge"]["measured"] == "not found" and rows["edge"]["candidates"]
+    assert report["counts"]["fail"] == 2
 
 
 def _plate_checks() -> list[dict]:
@@ -192,7 +193,7 @@ def _plate_checks() -> list[dict]:
 
 
 def _plate() -> str:
-    _ok(server.set_parameters({"PlateL": "100 mm", "PlateW": "60 mm", "Thk": "10 mm", "NHoles": 3}))
+    _ok(set_test_parameters({"PlateL": "100 mm", "PlateW": "60 mm", "Thk": "10 mm", "NHoles": 3}))
     _ok(server.create_box(length=100, width=60, height=10, name="Plate"))
     _ok(
         server.bind_parameters(
@@ -217,12 +218,12 @@ def test_a_missing_chamfer_and_a_wrong_length_are_reported():
     assert [r["id"] for r in report["checks"] if r["status"] != "pass"] == ["chamfer"]
     assert rows["pitch"]["measured"] == 20 and rows["volume"]["status"] == "pass"
 
-    _ok(server.set_parameters({"PlateL": "105 mm"}))
+    _ok(set_test_parameters({"PlateL": "105 mm"}))
     _, rows = _rows(plate)
     assert rows["len"]["status"] == "fail"
     assert (rows["len"]["measured"], rows["len"]["required"], rows["len"]["unit"]) == (105, 100, "mm")
 
-    _ok(server.set_parameters({"PlateL": "100 mm"}))
+    _ok(set_test_parameters({"PlateL": "100 mm"}))
     chamfered = _ok(server.chamfer_edges(plate, size=1, edges="edges of top face", label="Result"))
     _ok(server.set_requirements("Result", [c for c in _plate_checks() if c["id"] != "volume"]))
     report, _ = _rows("Result")
@@ -243,7 +244,7 @@ def test_checks_survive_save_and_reopen():
         assert opened["document"] == path.stem and Path(opened["file"]) == path
         report, rows = _rows("Result")
         assert report["all_pass"] and rows["holes"]["source_quote"] == "6 x M10 holes"
-        _ok(server.set_parameters({"NHoles": 5}))
+        _ok(set_test_parameters({"NHoles": 5}))
         assert _rows("Result")[1]["holes"]["measured"] == 5
         again = _ok(server.open_document(str(path)))
         assert again["already_open"] is True and again["document"] == path.stem
@@ -255,7 +256,7 @@ def test_a_full_plate_build_needs_no_free_form_code(monkeypatch):
     calls = []
     monkeypatch.setattr(server, "run_freecad_code", lambda *a, **k: calls.append(a) or "{}")
     _new_document("NoCode")
-    _ok(server.set_parameters({"PlateL": "100 mm", "PlateW": "60 mm", "Thk": "10 mm", "FilletR": "2 mm"}))
+    _ok(set_test_parameters({"PlateL": "100 mm", "PlateW": "60 mm", "Thk": "10 mm", "FilletR": "2 mm"}))
     _ok(server.create_box(length=100, width=60, height=10, name="Plate"))
     _ok(
         server.bind_parameters(

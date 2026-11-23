@@ -40,3 +40,11 @@ def kb_copy(tmp_path, monkeypatch):
     monkeypatch.setattr(knowledge, "ROOT", dst)
     monkeypatch.setattr(knowledge, "EXTRA_ROOTS", [])
     return dst
+
+
+def set_test_parameters(params: dict, sheet: str = "Params") -> str:
+    """set_parameters for tests about something else: every value gets a default source."""
+    import server
+
+    sources = {name: {"type": "default", "where": "test value"} for name in params}
+    return server.set_parameters(params, sources, sheet)

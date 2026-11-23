@@ -1043,6 +1043,39 @@
    }
   },
   {
+   "name": "explain_params",
+   "description": "Where every value in a Params spreadsheet (by Name or Label) came from: a table of\nparameter, value, unit (mm, deg, or none for counts and factors), source type\n(prompt, knowledge, calc, default, user edit) and detail (the quote, knowledge file and\nrule, calculator and inputs, or where the default is defined).\nA value changed in the spreadsheet after set_parameters stored it shows as \"user edit\"\nwith the old and new content; a value set without set_parameters shows as \"unrecorded\".\nassumptions lists every default and unrecorded value.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "default": "Params",
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "title": "explain_paramsArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "explain_paramsOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "export_model",
    "description": "Export objects (default: all top-level shapes) by file extension:\n.step/.stp, .iges, .brep, .stl, .3mf, .obj. Relative paths go into the work folder;\npaths outside it are refused.",
    "inputSchema": {
@@ -2365,12 +2398,20 @@
   },
   {
    "name": "set_parameters",
-   "description": "Create/update spreadsheet parameters with aliases, e.g.\n{\"PlateL\": \"120 mm\", \"Thk\": \"4 mm\", \"NHoles\": 6}. Give lengths and angles as strings\nWITH units (\"120 mm\", \"30 deg\") so expressions like Params.PlateL + 2 mm work; plain\nnumbers are unitless and suit counts and factors.\nGeometry bound to an alias with an expression, e.g.\nbox.setExpression('Length', 'Params.PlateL'), rebuilds when the value changes.\nReturns objects that broke after the recompute, and any alias names FreeCAD\nrefused (single letters like W or V are unit names).",
+   "description": "Create/update spreadsheet parameters with aliases, e.g.\n{\"PlateL\": \"120 mm\", \"Thk\": \"4 mm\", \"NHoles\": 6}. Give lengths and angles as strings\nWITH units (\"120 mm\", \"30 deg\") so expressions like Params.PlateL + 2 mm work; plain\nnumbers are unitless and suit counts and factors.\nGeometry bound to an alias with an expression, e.g.\nbox.setExpression('Length', 'Params.PlateL'), rebuilds when the value changes.\n\nsources: where each value came from, one per parameter being set, stored with the\nsheet and replaced whenever the value is set again:\n  {\"type\": \"prompt\", \"source_quote\": \"12 mm thick\"}  the request's exact words, one line\n  {\"type\": \"knowledge\", \"file\": \"conventions.md\", \"rule\": \"Fillets and chamfers\"}\n      a knowledge file and one of its headings; both have to exist\n  {\"type\": \"calc\", \"tool\": \"calc_fasteners\", \"calc\": \"bolt_hole\", \"inputs\": {\"size\": \"M10\"}}\n      the calculator and the arguments it was called with\n  {\"type\": \"default\", \"where\": \"conventions.md: 1 mm fillet when no size is given\"}\n      a value that is none of these, and where that default is defined\n  {\"type\": \"user edit\", \"source_quote\": \"make it 15 mm thick\"}  a change the user asked\n      for after the part was built\nA parameter without a source, unknown types or keys, a knowledge file or heading that\ndoes not exist and inputs that do not fit the calculator are refused.\nReturns the source types stored, objects that broke after the recompute, and any alias\nnames FreeCAD refused (single letters like W or V are unit names).",
    "inputSchema": {
     "properties": {
      "params": {
       "additionalProperties": true,
       "title": "Params",
+      "type": "object"
+     },
+     "sources": {
+      "additionalProperties": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Sources",
       "type": "object"
      },
      "sheet": {
@@ -2380,7 +2421,8 @@
      }
     },
     "required": [
-     "params"
+     "params",
+     "sources"
     ],
     "title": "set_parametersArguments",
     "type": "object"
@@ -2476,7 +2518,7 @@
   },
   {
    "name": "set_requirements",
-   "description": "Store checks written from the user's request on an object (by Name or Label),\nreplacing earlier ones. They are saved with the document and measured by\nverify_requirements on the current shape, after any Params change.\n\nEach check is plain JSON:\n  {\"id\": \"holes\", \"kind\": \"hole_count\", \"target\": \"cylindrical faces diameter 11\",\n   \"value\": 6, \"unit\": \"count\", \"source_quote\": \"6 x M10 holes\"}\nid: letters, digits, _ or -, unique. source_quote: the request's exact words.\nkind, target, unit:\n  size                  axis \"X\"/\"Y\"/\"Z\", no target, unit \"mm\" (bounding box length)\n  hole_count            face selector of the holes, unit \"count\" (exact)\n  hole_diameter         face selector of the holes, unit \"mm\"\n  pitch_circle_diameter face selector of the holes, unit \"mm\" (circle through the hole axes)\n  hole_spacing          face selector of the holes, unit \"mm\" (centre to nearest centre)\n  thickness             face selector of one flat side (e.g. \"top\"), unit \"mm\": distance\n                        to the nearest opposite flat face behind it\n  volume                no target, unit \"mm3\"\n  mass                  no target, unit \"kg\", plus density_kg_m3\n  feature               face or edge selector that has to match something, no value\n                        or unit (a fillet: \"cylindrical faces radius 2\"; a chamfer:\n                        \"inclined planar faces\")\nSelectors are those of list_faces and fillet_edges. Holes are internal cylinders; a\nhole split into several faces counts once. tolerance: optional, default 0.01 mm,\n1 % for volume and mass; counts are exact. Unknown kinds or keys, numbers that are not\nfinite and positive, wrong units and selectors that do not parse are refused.\nReturns the stored check ids.",
+   "description": "Store checks written from the user's request on an object (by Name or Label),\nreplacing earlier ones. They are saved with the document and measured by\nverify_requirements on the current shape, after any Params change.\n\nEach check is plain JSON:\n  {\"id\": \"holes\", \"kind\": \"hole_count\", \"target\": \"cylindrical faces diameter 11\",\n   \"value\": 6, \"unit\": \"count\", \"source_quote\": \"6 x M10 holes\"}\nid: letters, digits, _ or -, unique. source_quote: the request's exact words.\nkind, target, unit:\n  size                  axis \"X\"/\"Y\"/\"Z\", no target, unit \"mm\" (bounding box length)\n  hole_count            face selector of the holes, unit \"count\" (exact)\n  hole_diameter         face selector of the holes, unit \"mm\"\n  pitch_circle_diameter face selector of the holes, unit \"mm\" (circle through the hole axes)\n  hole_spacing          face selector of the holes, unit \"mm\" (centre to nearest centre)\n  thickness             face selector of one flat side (e.g. \"top\"), unit \"mm\": distance\n                        to the nearest opposite flat face behind it\n  volume                no target, unit \"mm3\"\n  mass                  no target, unit \"kg\", plus density_kg_m3\n  feature               face or edge selector that has to match something, no value\n                        or unit (a fillet: \"cylindrical faces radius 2\"; a chamfer:\n                        \"inclined planar faces\")\nSelectors are those of list_faces and fillet_edges. Holes are internal cylinders; a\nhole split into several faces counts once.\nop: optional, for every kind except feature. \"eq\" (default): the measured value has to\nbe within tolerance of value; tolerance is optional, default 0.01 mm, 1 % for volume and\nmass, and counts are exact. \"min\": at least value (\"at least 3 mm wall\": thickness, op\n\"min\", value 3). \"max\": at most value (\"under 2 kg\": mass, op \"max\", value 2). min and\nmax take no tolerance.\nUnknown kinds, ops or keys, numbers that are not finite and positive, wrong units and\nselectors that do not parse are refused. Returns the stored check ids.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -2520,7 +2562,7 @@
   },
   {
    "name": "verify_requirements",
-   "description": "Measure every check stored with set_requirements on the object's current shape.\nReturns all_pass, counts of pass / fail / not_measured, and per check: status,\nmeasured vs required value with unit and tolerance, the faces or edges used and the\nsource_quote. A selector that matches nothing fails with the candidate faces; a check\nthat cannot be measured (e.g. a pitch circle of holes on a straight line) is\nnot_measured with the reason. missing_features lists the feature checks that failed.",
+   "description": "Measure every check stored with set_requirements on the object's current shape.\nReturns all_pass, counts of pass / fail / not_measured, and per check: status, op,\nmeasured vs required value with unit (and tolerance for eq), the faces or edges used\nand the source_quote. A selector that matches nothing fails with the candidate faces.\nWhen no hole has the diameter a hole_count or hole_diameter target asks for, the count\nmeasures 0 and the diameter check fails with the nearest hole diameter as measured;\nnearest_holes lists the closest hole sizes with their counts. A check that cannot be\nmeasured (e.g. a pitch circle of holes on a straight line) is not_measured with the\nreason. missing_features lists the feature checks that failed.",
    "inputSchema": {
     "properties": {
      "name": {

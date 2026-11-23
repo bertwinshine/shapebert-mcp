@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from conftest import LIVE_PORT, ROOT, listener_up
+from conftest import LIVE_PORT, ROOT, listener_up, set_test_parameters
 from replies import load
 
 pytestmark = pytest.mark.skipif(not listener_up(), reason=f"no FreeCAD listener on port {LIVE_PORT}")
@@ -123,20 +123,20 @@ def test_stl_export():
 
 
 def test_parameters_drive_geometry():
-    J(server.set_parameters({"L": 100}))
+    J(set_test_parameters({"L": 100}))
     J(
         server.run_freecad_code(
             "b = App.ActiveDocument.addObject('Part::Box', 'PB')\n"
             "b.setExpression('Length', 'Params.L')\nApp.ActiveDocument.recompute()"
         )
     )
-    J(server.set_parameters({"L": 140}))
+    J(set_test_parameters({"L": 140}))
     size = J(server.measure("PB"))["bbox"]["size_mm"][0]
     assert size == pytest.approx(140)
 
 
 def test_length_parameters_keep_their_unit():
-    J(server.set_parameters({"TubeLength": "100 mm", "NHoles": 6}))
+    J(set_test_parameters({"TubeLength": "100 mm", "NHoles": 6}))
     J(
         server.run_freecad_code(
             "b = App.ActiveDocument.addObject('Part::Box', 'UB')\n"
@@ -151,7 +151,7 @@ def test_length_parameters_keep_their_unit():
 
 def test_rejected_alias_is_reported_not_hidden():
     """FreeCAD refuses unit names like 'W' as aliases; the tool must say so."""
-    rep = J(server.set_parameters({"W": 60, "PlateW": 60}))
+    rep = J(set_test_parameters({"W": 60, "PlateW": 60}))
     assert rep["ok"] is False and rep["rejected_aliases"] == ["W"]
     assert "PlateW" in rep["set"]
 

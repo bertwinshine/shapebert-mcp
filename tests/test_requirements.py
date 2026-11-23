@@ -61,6 +61,34 @@ def test_valid_checks_come_back_canonical_with_default_tolerances():
     assert json.loads(json.dumps([holes, pcd])) == [holes, pcd]
 
 
+def test_op_defaults_to_eq_and_min_max_carry_no_tolerance():
+    assert reqs.check_one(PCD, 1)["op"] == "eq"
+    wall = {
+        "id": "wall",
+        "kind": "thickness",
+        "target": "top",
+        "op": "min",
+        "value": 3,
+        "unit": "mm",
+        "source_quote": "at least 3 mm wall",
+    }
+    canonical = reqs.check_one(wall, 1)
+    assert canonical["op"] == "min" and "tolerance" not in canonical
+    mass = {
+        "id": "mass",
+        "kind": "mass",
+        "op": "max",
+        "value": 2,
+        "unit": "kg",
+        "density_kg_m3": 7850,
+        "source_quote": "under 2 kg",
+    }
+    assert reqs.check_one(mass, 1)["op"] == "max"
+    for op in reqs.OPS:
+        count = reqs.check_one(_with(HOLES, op=op), 1)
+        assert count["op"] == op and ("tolerance" in count) == (op == "eq")
+
+
 def test_an_explicit_tolerance_is_kept():
     assert reqs.check_one(_with(PCD, tolerance=0.2), 1)["tolerance"] == 0.2
     assert reqs.check_one(_with(HOLES, tolerance=0), 1)["tolerance"] == 0
@@ -92,7 +120,13 @@ def test_an_explicit_tolerance_is_kept():
         (_with(PCD, target=...), "a selector must be text"),
         (_with(LENGTH, target="top"), "leave target out"),
         (_with(LENGTH, axis="W"), "axis must be X, Y or Z"),
-        (_with(CHAMFER, value=1), "no value, unit or tolerance"),
+        (_with(CHAMFER, value=1), "no value, unit, op or tolerance"),
+        (_with(CHAMFER, op="min"), "no value, unit, op or tolerance"),
+        (_with(PCD, op="gt"), "op must be one of"),
+        (_with(PCD, op=None), "op must be one of"),
+        (_with(PCD, op="min", tolerance=0.1), "a min check is a limit; leave tolerance out"),
+        (_with(HOLES, op="max", tolerance=0), "a max check is a limit; leave tolerance out"),
+        (_with(HOLES, op="min", value=2.5), "whole number"),
         (_with(CHAMFER, target="edges of nowhere"), "target"),
         (_with(HOLES, source_quote=""), "source_quote"),
         (_with(HOLES, source_quote=...), "source_quote"),

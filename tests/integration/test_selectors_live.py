@@ -3,7 +3,7 @@
 import math
 
 import pytest
-from conftest import LIVE_PORT, listener_up
+from conftest import LIVE_PORT, listener_up, set_test_parameters
 from replies import load
 from test_structured_build import _build_flange
 
@@ -36,7 +36,7 @@ def _value(code: str):
 
 def _plate_with_holes() -> str:
     """The demo plate: 100 x 40 x Thk with a row of NHoles holes; its top is Face3."""
-    _ok(server.set_parameters({"Thk": "10 mm", "NHoles": 3}))
+    _ok(set_test_parameters({"Thk": "10 mm", "NHoles": 3}))
     _ok(server.create_box(length=100, width=40, height=10, name="Plate"))
     _ok(server.bind_parameters("Plate", {"Height": "Params.Thk"}))
     _ok(server.create_cylinder(radius=3, height=10, name="Hole"))
@@ -107,7 +107,7 @@ def test_flange_bore_and_bolt_holes_found_by_selector():
     assert len(holes) == 4
     assert all(math.hypot(*h["centre_mm"][:2]) == pytest.approx(37.5) for h in holes)
 
-    _ok(server.set_parameters({"NHoles": 6}))
+    _ok(set_test_parameters({"NHoles": 6}))
     setup = _static_setup("Result", ["bore"], ["cylindrical faces diameter 11"])
     assert len(setup["loads"][0]["face_info"]) == 6
     rims = _ok(server.chamfer_edges("Result", size=1, edges="edges of bore"))
@@ -131,7 +131,7 @@ def test_fillet_stays_on_the_same_edges_after_a_params_change():
     assert len(fillet["edges"]) == before["edges"] == 4 + 3
     assert fillet["volume_mm3"] == pytest.approx(before["volume"], abs=2e-3)
 
-    _ok(server.set_parameters({"NHoles": 5}))
+    _ok(set_test_parameters({"NHoles": 5}))
     after = _top_fillet_reference(part)
     resolved = _ok(server.inspect_object("Result"))["properties"]["ResolvedEdges"]
     assert len(resolved) == after["edges"] == 4 + 5

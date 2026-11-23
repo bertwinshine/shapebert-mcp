@@ -23,7 +23,8 @@ knowledge base, the exact calculators and the checks - use them every time.
   for a step no ShapeBert tool can do, and tell the user which step and why first.
   A normal build (documents, Params, primitives, patterns, booleans, fillets, checks)
   needs none.
-- Parametric: `set_parameters` (Params spreadsheet)
+- Parametric: `set_parameters` (Params spreadsheet, every value with its source),
+  `explain_params` (where each value came from)
 - Builders: `build_spur_gear`, `build_ring_gear` (exact involute teeth; never draw tooth
   curves yourself), `build_sheet_profile` (bent L/U/Z/hat profiles with the flat length)
 - Add-ons: the core tools need plain FreeCAD only. If a part needs an optional add-on
@@ -105,10 +106,24 @@ values", follow conventions.md / the domain defaults and report every value chos
    LinearPattern and bind `Occurrences` to the parameter (e.g. Params.NHoles), never
    a fixed Python loop - otherwise changing the count does nothing. With the Build
    tools, `pattern_polar` / `pattern_linear` and bind `NumberPolar` / `NumberX`.
-   Give lengths with units: `set_parameters({"PlateL": "120 mm", "NHoles": 6})`,
+   Give lengths with units: `set_parameters({"PlateL": "120 mm", "NHoles": 6}, sources)`,
    otherwise `Params.PlateL + 2 mm` fails with a unit mismatch.
    Name parameters descriptively (PlateL, PlateW, Thk, HoleD) - single letters like
    W, V, N, A are FreeCAD unit names and are refused as aliases.
+   Every parameter needs a source in `sources`, one per value:
+   - `{"type": "prompt", "source_quote": "120 x 80 plate"}` - the user's exact words,
+     copied from the request on one line. Never invent or reword a quote.
+   - `{"type": "knowledge", "file": "domains/fasteners-fits.md", "rule": "<heading>"}` -
+     the knowledge file and the heading of the rule you applied, as written there.
+   - `{"type": "calc", "tool": "calc_fasteners", "calc": "bolt_hole", "inputs": {"size": "M10"}}`:
+     the calculator call the value came from.
+   - `{"type": "default", "where": "conventions.md: 1 mm fillet when no size is given"}` -
+     anything else, including a value you chose. These are assumptions.
+   - `{"type": "user edit", "source_quote": "make it 15 mm thick"}` - a change the user
+     asked for after the build.
+   A value is "prompt" only if the request states it; "knowledge" or "calc" only if
+   that rule or calculation produced it. Everything else is "default". When you change
+   a value later, give its new source with it.
 3. Build. Free-form code (`run_freecad_code`) is off by default; `doctor` says which.
    With it off, build from primitives with the Build tools. A flange, for example:
    `set_parameters` -> `create_cylinder` for disk, bore and one bolt hole ->
@@ -136,8 +151,10 @@ values", follow conventions.md / the domain defaults and report every value chos
 0. Requirements from the request: after every build, call `set_requirements` on the
    final object with one check per number or feature in the user's request, each
    with `source_quote` = the user's exact words ("6 x M10 holes", "PCD 100", "12 mm
-   thick", "chamfer the top edges"). Values you chose yourself (defaults, calculator
-   results) are not requirements; report those as before. Then `verify_requirements`.
+   thick", "chamfer the top edges"). Limits are checks with `op`: "at least 3 mm wall"
+   is a thickness with op "min", "under 2 kg" a mass with op "max"; "eq" (the default)
+   is for an exact value. Values you chose yourself (defaults, calculator results)
+   are not requirements; report those as before. Then `verify_requirements`.
    On any fail, fix the part and verify again. Never report a part as done while a
    check fails or a requested feature is listed as missing. If a request item has no
    check kind, or a check comes back `not_measured`, say plainly which ones were not
@@ -153,9 +170,11 @@ values", follow conventions.md / the domain defaults and report every value chos
 4. Domain checks: boats -> `hydrostatics` with the loaded mass (and kg_mm for GM);
    printed parts -> `check_printability`; gears/welds/shafts -> calculator checks.
 5. Report: the requirement table from `verify_requirements` (check, request quote,
-   required, measured, pass/fail), then the other key numbers, each tagged given /
-   default / calculated, the final volume or mass, the other checks passed/failed, and
-   what still needs a human or certified check.
+   op, required, measured, pass/fail), then the parameter table from `explain_params`
+   (parameter, value, unit, source, detail), the final volume or mass, the other checks
+   passed/failed, and what still needs a human or certified check. End the reply with
+   the assumptions: every parameter `explain_params` lists under assumptions, by name
+   and value, so the user can correct them.
 
 ## FEA checks
 - Material, fixed faces and loads (or the frequency of interest for a modal check) are
