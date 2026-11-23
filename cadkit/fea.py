@@ -3,6 +3,8 @@
 import os
 import re
 
+import shapebert_selectors as selectors
+
 # Linear-elastic values in N, mm, MPa; thermal values in W/(m K), J/(kg K) and 1/K.
 # Steel is S235 like weldments.py; the densities of the plastics match
 # domains/fdm-3d-printing.md.
@@ -54,7 +56,6 @@ MATERIALS = {
 }
 LOOKUP = {**{k.lower(): k for k in MATERIALS}, "aluminum": "aluminium", "alu": "aluminium"}
 
-FACE_NAME = re.compile(r"^Face[1-9]\d*$")
 # Also names the solver folder in the work folder, so no dots or slashes.
 ANALYSIS_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 # Finer meshes than this would run Gmsh and CalculiX for hours or out of memory.
@@ -109,12 +110,13 @@ def material(name: str) -> dict:
 
 
 def _faces(faces, what: str) -> list[str]:
+    """Face names like 'Face1' or face selectors like 'top', in canonical form."""
     if not isinstance(faces, list) or not faces:
-        raise ValueError(f"{what}: give a non-empty list of face names like ['Face1']")
-    bad = [f for f in faces if not isinstance(f, str) or not FACE_NAME.match(f)]
-    if bad:
-        raise ValueError(f"{what}: {bad} are not face names like 'Face1'")
-    return faces
+        raise ValueError(f"{what}: give a non-empty list of faces, e.g. ['top'] or ['Face1']")
+    try:
+        return selectors.parse_list(faces, lambda f: selectors.parse_face(f, allow_names=True), what)
+    except selectors.SelectorError as e:
+        raise ValueError(f"{what}: {e}") from None
 
 
 def check_loads(loads: list[dict]) -> list[dict]:
@@ -255,7 +257,9 @@ def check_setup(
     if unused:
         raise ValueError(f"a {analysis_type} analysis does not use {unused}; leave them out")
     if "supports" in required and not (fixed_faces or sliding_faces):
-        raise ValueError("fixed_faces: give a non-empty list of face names like ['Face1'] (or sliding_faces)")
+        raise ValueError(
+            "fixed_faces: give a non-empty list of faces, e.g. ['bottom'] or ['Face1'] (or sliding_faces)"
+        )
     if "time" in required:
         _check_time(time_end_s, time_step_s)
     if analysis_type in ("modal", "buckling") and not 1 <= modes <= 50:

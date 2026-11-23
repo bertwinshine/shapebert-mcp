@@ -39,7 +39,7 @@ def test_valid_setup_passes():
     "fixed, loads, size, message",
     [
         ([], [FORCE], 3, "fixed_faces"),
-        (["Face1; import os"], [FORCE], 3, "not face names"),
+        (["Face1; import os"], [FORCE], 3, "unknown face selector"),
         (["Face1"], [], 3, "at least one load"),
         (["Face1"], [{**FORCE, "direction": [0, 0, 0]}], 3, "non-zero"),
         (["Face1"], [{**FORCE, "value_n": -5}], 3, "flip the direction"),

@@ -39,7 +39,7 @@ cut to its end, and `get_job_result` pages through all of it.
 |---|---|
 | Bridge | `ping_freecad`, `get_status`, `doctor`, `run_freecad_code`, `get_job_result`, `get_document_info` |
 | Build | `create_box`, `create_cylinder`, `set_placement`, `bind_parameters`, `pattern_polar`, `pattern_linear`, `boolean`, `fillet_edges`, `chamfer_edges` |
-| Checking | `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `get_view`, `compare_shapes` |
+| Checking | `check_geometry`, `check_model_structure`, `measure`, `inspect_object`, `list_faces`, `get_view`, `compare_shapes` |
 | Files | `export_model`, `import_model`, `save_document` |
 | Parameters | `set_parameters` |
 | Builders | `build_spur_gear`, `build_ring_gear`, `build_sheet_profile` |
@@ -53,6 +53,19 @@ and chamfers without free-form code. They take numbers and object names only, ma
 parametric FreeCAD objects (Part::Cut, Draft arrays, Part::Fillet ...), and
 `bind_parameters` ties their sizes and counts to the Params spreadsheet, so changing
 one value later rebuilds the part.
+
+FreeCAD numbers faces and edges in an order that changes when the part changes, so
+`Face6` can be the top face of one plate and an end face of the next. Fillets,
+chamfers and FEA setups therefore take selectors such as `top`, `-X`, `bore`,
+`cylindrical faces radius 5.5`, `largest planar face`, `edges of top face`,
+`vertical edges` or `concave edges`, found from the geometry with fixed tolerances.
+A fillet or chamfer made from selectors keeps them and finds its edges again on
+every rebuild. A selector that matches nothing, or ties (two faces of the same
+largest area), is refused with the candidates. `list_faces` lists every face with
+its type, centre, normal or axis and radius, and area. Documents with fillets made
+from edge numbers still open and rebuild as before. A selector fillet needs
+ShapeBert's `shapebert_selectors.py` to rebuild; without it FreeCAD keeps the last
+shape.
 
 `run_freecad_code` runs each script in a fresh namespace and returns the result,
 any printed output, and a summary of every object the script created. If the
@@ -438,7 +451,7 @@ you before the risky ones.
 | Tool | Access |
 |---|---|
 | `ping_freecad`, `get_status`, `doctor`, `get_job_result` | Read-only |
-| `get_document_info`, `inspect_object`, `measure` | Read-only |
+| `get_document_info`, `inspect_object`, `list_faces`, `measure` | Read-only |
 | `check_geometry`, `check_model_structure`, `get_view` | Read-only |
 | `compare_shapes`, `hydrostatics`, `check_printability` | Read-only |
 | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld` | Read-only |

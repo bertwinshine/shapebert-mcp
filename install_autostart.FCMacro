@@ -27,6 +27,9 @@ shutil.copytree(addon, target)
 # folder, and the old one may be deleted. Re-run this macro after an update.
 installed = os.path.join(target, "freecad_listener.py")
 shutil.copy2(listener, installed)
+# FreeCAD puts Mod folders on sys.path, so documents with selector fillets find the
+# module when they are reopened before the bridge has sent anything.
+shutil.copy2(os.path.join(here, "shapebert_selectors.py"), target)
 with open(os.path.join(target, "listener_path.txt"), "w", encoding="utf-8") as f:
     f.write(installed)
 

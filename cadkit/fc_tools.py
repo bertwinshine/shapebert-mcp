@@ -4,9 +4,12 @@ server.py sends this file's source (after gear_profile.py) along with a single
 call, so nothing has to be installed in FreeCAD's Python. Every public function returns a JSON-safe dict.
 """
 
+import hashlib
 import math
 import os
 import re
+import sys
+import types
 
 import FreeCAD as App
 import Part
@@ -25,6 +28,25 @@ VIEWS = {
     "axonometric": "viewAxonometric",
 }
 SKIPPED_PROPERTIES = {"Shape", "Proxy", "ExpressionEngine", "Label2", "Visibility"}
+
+
+SELECTORS_MODULE = "shapebert_selectors"
+
+
+def _selectors():
+    """shapebert_selectors as sent by the server, registered under its import name.
+
+    Saved documents name RoundEdges by that module, so FreeCAD finds it in
+    sys.modules when it reopens them. An older copy (an installed one) is replaced.
+    """
+    key = hashlib.sha256(SELECTORS_SOURCE.encode()).hexdigest()  # noqa: F821 - prepended by server.py
+    module = sys.modules.get(SELECTORS_MODULE)
+    if module is None or getattr(module, "SOURCE_KEY", None) != key:
+        module = types.ModuleType(SELECTORS_MODULE)
+        exec(compile(SELECTORS_SOURCE, f"{SELECTORS_MODULE}.py", "exec"), module.__dict__)  # noqa: F821
+        module.SOURCE_KEY = key
+        sys.modules[SELECTORS_MODULE] = module
+    return module
 
 
 def _doc(create=False):
@@ -513,44 +535,53 @@ def pattern_linear(name, count, spacing, direction, label=None):
     return _finish(obj.Document, array, label, [obj])
 
 
-def _is_seam(shape, edge):
-    faces = shape.ancestorsOfType(edge, Part.Face)
-    return all(f.isSame(faces[0]) for f in faces)
+def _selector_refusal(error):
+    return {"ok": False, "error": str(error), "candidates": error.candidates}
 
 
-def _edge_numbers(shape, edges):
-    if isinstance(edges, list):
+def round_edges(kind, name, size, edges=None, selectors=None, label=None):
+    """Fillet or chamfer of `size` mm. Edge names give a Part::Fillet / Part::Chamfer
+    with fixed edge numbers; selectors give a RoundEdges feature that finds its edges
+    again on every recompute."""
+    sel = _selectors()
+    (obj,) = _shaped([name])
+    shape = obj.Shape
+    if edges:
         numbers = [int(e[4:]) for e in edges]
         missing = [n for n in numbers if n > len(shape.Edges)]
         if missing:
             raise RuntimeError(f"the shape has {len(shape.Edges)} edges, so Edge{missing[0]} does not exist")
-        return numbers
-    bb, tol = shape.BoundBox, 1e-4
-    tests = {
-        "all": lambda b: True,
-        "top": lambda b: abs(b.ZMin - bb.ZMax) < tol and abs(b.ZMax - bb.ZMax) < tol,
-        "bottom": lambda b: abs(b.ZMin - bb.ZMin) < tol and abs(b.ZMax - bb.ZMin) < tol,
-        "vertical": lambda b: b.XLength < tol and b.YLength < tol and b.ZLength > tol,
-    }
-    numbers = [
-        i
-        for i, edge in enumerate(shape.Edges, start=1)
-        if tests[edges](edge.BoundBox) and not _is_seam(shape, edge)
-    ]
-    if not numbers:
-        raise RuntimeError(f"no {edges!r} edges found on this shape")
-    return numbers
-
-
-def round_edges(kind, name, size, edges, label=None):
-    """Part::Fillet or Part::Chamfer of `size` mm on the selected edges."""
-    (obj,) = _shaped([name])
-    numbers = _edge_numbers(obj.Shape, edges)
-    feature = obj.Document.addObject(f"Part::{kind}", kind)
-    feature.Base = obj
-    feature.Edges = [(n, size, size) for n in numbers]
+        feature = obj.Document.addObject(f"Part::{kind}", kind)
+        feature.Base = obj
+        feature.Edges = [(n, size, size) for n in numbers]
+    else:
+        try:
+            numbers = sel.resolve_edges(shape, selectors)
+        except sel.SelectorError as e:
+            return _selector_refusal(e)
+        feature = obj.Document.addObject("Part::FeaturePython", kind)
+        sel.RoundEdges(feature, kind, obj, size, selectors)
     out = _finish(obj.Document, feature, label, [obj])
     out["edges"] = [f"Edge{n}" for n in numbers]
+    if selectors:
+        out["selectors"] = selectors
+    return out
+
+
+def list_faces(name, limit=300):
+    sel = _selectors()
+    obj = _obj(name)
+    if not _has_shape(obj):
+        raise RuntimeError(f"{obj.Name} has no shape")
+    faces = obj.Shape.Faces
+    out = {
+        "name": obj.Name,
+        "label": obj.Label,
+        "face_count": len(faces),
+        "faces": [sel.describe_face(f, i) for i, f in enumerate(faces[:limit], 1)],
+    }
+    if len(faces) > limit:
+        out["note"] = f"only the first {limit} of {len(faces)} faces are listed"
     return out
 
 
