@@ -634,7 +634,7 @@
   },
   {
    "name": "chamfer_edges",
-   "description": "Parametric chamfer (Part::Chamfer) of size mm on edges of an existing solid.\nedges are chosen as in fillet_edges: \"all\", \"top\", \"bottom\", \"vertical\" or a list\nlike [\"Edge1\", \"Edge5\"]. Returns the new object's name, label, validity, volume,\nsize and the edges used.",
+   "description": "Parametric chamfer of size mm on edges of an existing solid.\n\nedges are chosen as in fillet_edges: a selector such as \"all\", \"vertical\",\n\"concave edges\", \"top\", \"edges of top face\", \"edges of bore\" (or a list of them),\nre-resolved on every rebuild; or a list of names like [\"Edge1\", \"Edge5\"], fixed by\nnumber. Bind the size with bind_parameters(<chamfer>, {\"Size\": \"Params.ChamferS\"}).\nReturns the new object's name, label, validity, volume, size, the selectors and\nthe edges they found.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -1148,7 +1148,7 @@
   },
   {
    "name": "fea_setup",
-   "description": "Set up a CalculiX analysis of one solid part. Units: mm, N, MPa, °C, W, Hz.\nReplaces an earlier analysis with the same name. Needs CalculiX and Gmsh (doctor).\n\nanalysis_type and what it needs:\n  \"static\"         fixed_faces + loads -> stress, displacement, reactions, safety factor\n  \"modal\"          fixed_faces (no loads) -> first `modes` natural frequencies\n  \"thermal_steady\" temperatures (no fixed_faces, no loads) -> temperature field and\n                   heat flow at each fixed-temperature face; other faces are insulated\n  \"thermomechanical\" supports + temperatures (+ optional loads) -> thermal stress and\n                   expansion; the part starts stress-free at initial_temperature_c.\n                   For a uniform temperature change give every face that temperature.\n  \"buckling\"       supports + loads -> first `modes` buckling load factors; factor x\n                   applied load = ideal elastic buckling load (use 1 N to read it directly)\n  \"thermal_transient\" temperatures + time_end_s + time_step_s -> temperatures over time;\n                   the part starts at initial_temperature_c, the face temperatures\n                   switch on at time 0, other faces are insulated. At most 500 steps.\n                   Accuracy over time is first order: the error shrinks with the\n                   step. If early values matter, run again with half the step and\n                   compare.\nInputs a type does not use are refused, so nothing is silently ignored.\nSupports are fixed_faces and/or sliding_faces (static, modal, thermomechanical).\n\nmaterial: one of steel (S235), aluminium (6061-T6), PETG, PLA; others are refused.\nThe reply lists the values used.\nfixed_faces: faces held completely still, e.g. [\"Face1\"]. This also blocks thermal\nexpansion within the face.\nsliding_faces: flat faces facing along x, y or z that may slide in their own plane\nbut not move along their normal (a symmetry plane or a frictionless wall). Three of\nthem facing x, y and z hold a part without restraining its thermal expansion.\nloads: list of\n  {\"type\": \"force\", \"faces\": [\"Face2\"], \"value_n\": 100, \"direction\": [0, 0, -1]}\n    (total force in N spread over the faces, direction is any vector), or\n  {\"type\": \"pressure\", \"faces\": [\"Face6\"], \"value_mpa\": 0.1}\n    (positive presses on the face, negative pulls).\ntemperatures: list of {\"faces\": [\"Face1\"], \"temperature_c\": 100}.\ninitial_temperature_c: start and reference temperature (default 20 °C).\nmesh_size_mm: largest element edge; about a third of the thinnest wall or less gives\nusable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that\nwould give more than about 2 million elements (part volume / size^3 x 6) is refused.\npart: the object's Name or Label; refused if it matches more than one object.\nReturns each named face's centre, normal and area, the material values and units.",
+   "description": "Set up a CalculiX analysis of one solid part. Units: mm, N, MPa, °C, W, Hz.\nReplaces an earlier analysis with the same name. Needs CalculiX and Gmsh (doctor).\n\nanalysis_type and what it needs:\n  \"static\"         fixed_faces + loads -> stress, displacement, reactions, safety factor\n  \"modal\"          fixed_faces (no loads) -> first `modes` natural frequencies\n  \"thermal_steady\" temperatures (no fixed_faces, no loads) -> temperature field and\n                   heat flow at each fixed-temperature face; other faces are insulated\n  \"thermomechanical\" supports + temperatures (+ optional loads) -> thermal stress and\n                   expansion; the part starts stress-free at initial_temperature_c.\n                   For a uniform temperature change give every face that temperature.\n  \"buckling\"       supports + loads -> first `modes` buckling load factors; factor x\n                   applied load = ideal elastic buckling load (use 1 N to read it directly)\n  \"thermal_transient\" temperatures + time_end_s + time_step_s -> temperatures over time;\n                   the part starts at initial_temperature_c, the face temperatures\n                   switch on at time 0, other faces are insulated. At most 500 steps.\n                   Accuracy over time is first order: the error shrinks with the\n                   step. If early values matter, run again with half the step and\n                   compare.\nInputs a type does not use are refused, so nothing is silently ignored.\nSupports are fixed_faces and/or sliding_faces (static, modal, thermomechanical).\n\nmaterial: one of steel (S235), aluminium (6061-T6), PETG, PLA; others are refused.\nThe reply lists the values used.\nFaces: each list takes face selectors or face names, mixed if needed. Selectors\n(\"top\", \"bottom\", \"+X\" ... \"-Z\", \"largest planar face\", \"bore\",\n\"cylindrical faces radius 4\"; see list_faces) are found from the geometry, so they\npick the same faces however FreeCAD numbers them; names like \"Face1\" are taken as\ngiven. A selector that matches nothing, or ties, is refused with the candidates.\nfixed_faces: faces held completely still, e.g. [\"bottom\"] or [\"Face1\"]. This also\nblocks thermal expansion within the face.\nsliding_faces: flat faces facing along x, y or z that may slide in their own plane\nbut not move along their normal (a symmetry plane or a frictionless wall). Three of\nthem facing x, y and z hold a part without restraining its thermal expansion.\nloads: list of\n  {\"type\": \"force\", \"faces\": [\"+X\"], \"value_n\": 100, \"direction\": [0, 0, -1]}\n    (total force in N spread over the faces, direction is any vector), or\n  {\"type\": \"pressure\", \"faces\": [\"top\"], \"value_mpa\": 0.1}\n    (positive presses on the face, negative pulls).\ntemperatures: list of {\"faces\": [\"-X\"], \"temperature_c\": 100}.\ninitial_temperature_c: start and reference temperature (default 20 °C).\nmesh_size_mm: largest element edge; about a third of the thinnest wall or less gives\nusable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that\nwould give more than about 2 million elements (part volume / size^3 x 6) is refused.\npart: the object's Name or Label; refused if it matches more than one object.\nReturns every face used, with the selector or name that chose it, its centre,\nnormal and area, plus the material values and units.",
    "inputSchema": {
     "properties": {
      "part": {
@@ -1299,7 +1299,7 @@
   },
   {
    "name": "fillet_edges",
-   "description": "Parametric fillet (Part::Fillet) of radius mm on edges of an existing solid.\nedges = \"all\", \"top\" (edges in the top plane: outline and hole rims), \"bottom\",\n\"vertical\" (edges parallel to Z) or a list of names like [\"Edge1\", \"Edge5\"]; seam\nedges of round faces are skipped. Edges are stored by number, so look at the part\nagain after a Params change that alters its shape. Returns the new object's name,\nlabel, validity, volume, size and the edges used.",
+   "description": "Parametric fillet of radius mm on edges of an existing solid.\n\nedges = one edge selector or a list of them. The fillet stores the selectors and\nfinds its edges again on every rebuild, so it follows Params changes:\n  \"all\"; \"vertical\" or \"vertical edges\" (edges parallel to Z); \"concave edges\"\n  (inside corners); \"top\" / \"bottom\" (edges of the top / bottom face);\n  \"edges of <face selector>\", e.g. \"edges of top face\", \"edges of +X side\",\n  \"edges of bore\", \"edges of cylindrical faces radius 4\" (face selectors as in\n  list_faces' description).\nA list of names like [\"Edge1\", \"Edge5\"] instead fixes the edges by number, which\ncan move to other edges when the part changes. Seam edges of round faces are\nskipped. A selector that matches nothing is refused, with what the part has.\nThe radius is the Size property: bind_parameters(<fillet>, {\"Size\": \"Params.FilletR\"}).\nReturns the new object's name, label, validity, volume, size, the selectors and\nthe edges they found.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -1638,6 +1638,41 @@
      "result"
     ],
     "title": "inspect_objectOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "list_faces",
+   "description": "Every face of one object (by Name or Label): name (Face1 ...), surface type\n(plane, cylinder, cone, sphere, torus, bspline ...), centre, area and bounding box,\nplus the outward normal of a plane, the axis, axis point, radius and internal\n(a hole wall) of a cylinder, the axis and half angle of a cone.\n\nFace numbers change when the part changes. Tools that take faces (fillet_edges,\nchamfer_edges, fea_setup) also take face selectors, found again from the geometry:\n  \"top\", \"bottom\", \"+X\", \"-X\", \"+Y\", \"-Y\" (\"+Z\" = top, \"-Z\" = bottom; \"top face\"\n  and \"+X side\" work too): the flat faces facing that way, the outermost ones;\n  \"largest planar face\"; \"cylindrical faces radius 4\" or \"... diameter 8\" (holes\n  and round outsides of that size); \"bore\": the widest internal cylinder.\nA selector that matches nothing, or \"largest planar face\" / \"bore\" with a tie, is\nrefused with the candidate faces. Lists the first 300 faces.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "list_facesArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "list_facesOutput",
     "type": "object"
    },
    "annotations": {

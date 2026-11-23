@@ -3,10 +3,11 @@
 import math
 import re
 
+import shapebert_selectors as selectors
+
 NEW_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 PROPERTY_PATH = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*){0,3}")
 EDGE_NAME = re.compile(r"Edge[1-9]\d{0,4}")
-EDGE_SELECTORS = {"all", "top", "bottom", "vertical"}
 BOOLEAN_OPERATIONS = {"cut", "fuse", "common"}
 UNITS = {"um", "mm", "cm", "m", "in", "ft", "deg", "rad"}
 MAX_COUNT = 200
@@ -110,16 +111,16 @@ def expressions(value) -> dict[str, str]:
     return out
 
 
-def edges(value) -> str | list[str]:
-    if isinstance(value, str):
-        if value not in EDGE_SELECTORS:
-            raise ValueError(
-                f"edges must be one of {sorted(EDGE_SELECTORS)} or a list like ['Edge1', 'Edge4']"
-            )
-        return value
-    if not isinstance(value, list) or not value or len(value) > MAX_COUNT:
-        raise ValueError("edges must be a selector word or a list of edge names")
-    for name in value:
-        if not isinstance(name, str) or not EDGE_NAME.fullmatch(name):
-            raise ValueError(f"edge {name!r} must look like Edge3")
-    return value
+def edges(value) -> tuple[list[str] | None, list[str] | None]:
+    """(edge names, None) for fixed edge numbers, or (None, canonical selectors)."""
+    if (
+        isinstance(value, list)
+        and value
+        and all(isinstance(v, str) and EDGE_NAME.fullmatch(v) for v in value)
+    ):
+        if len(value) > MAX_COUNT:
+            raise ValueError(f"give at most {MAX_COUNT} edge names")
+        return value, None
+    if isinstance(value, list) and any(isinstance(v, str) and EDGE_NAME.fullmatch(v) for v in value):
+        raise ValueError("give either edge names like ['Edge1', 'Edge4'] or selectors, not both")
+    return None, selectors.parse_list(value, selectors.parse_edges, "edges")

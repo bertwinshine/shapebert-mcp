@@ -101,6 +101,9 @@ def test_bad_property_paths(path):
         (lambda v: build_checks.edges(v), "outer"),
         (lambda v: build_checks.edges(v), ["Edge0"]),
         (lambda v: build_checks.edges(v), ["Face1"]),
+        (lambda v: build_checks.edges(v), ["Edge1", "vertical"]),
+        (lambda v: build_checks.edges(v), []),
+        (lambda v: build_checks.edges(v), "edges of Face3"),
     ],
 )
 def test_bad_values_are_refused(check, value):
@@ -157,9 +160,11 @@ def test_patterns_and_placement_fill_in_default_vectors(fc_calls):
 def test_fillet_and_chamfer_use_one_freecad_function(fc_calls):
     server.fillet_edges("Plate", radius=2, edges=["Edge1", "Edge3"])
     server.chamfer_edges("Plate", size=1, edges="top")
-    assert [(f, k["kind"], k["edges"]) for f, k in fc_calls] == [
-        ("round_edges", "Fillet", ["Edge1", "Edge3"]),
-        ("round_edges", "Chamfer", "top"),
+    server.fillet_edges("Plate", radius=2, edges=["Edges of the TOP face", "vertical", "top"])
+    assert [(f, k["kind"], k["edges"], k["selectors"]) for f, k in fc_calls] == [
+        ("round_edges", "Fillet", ["Edge1", "Edge3"], None),
+        ("round_edges", "Chamfer", None, ["edges of top"]),
+        ("round_edges", "Fillet", None, ["edges of top", "vertical"]),
     ]
 
 

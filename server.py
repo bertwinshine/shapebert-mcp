@@ -39,8 +39,9 @@ if FREECAD_HOST not in {"127.0.0.1", "localhost", "::1"}:
     raise SystemExit(f"FREECAD_MCP_HOST must be this computer (127.0.0.1), not {FREECAD_HOST!r}")
 FREECAD_PORT = int(os.environ.get("FREECAD_MCP_PORT", "9876"))
 # gear_profile.py and sheet_profile.py are plain maths that fc_tools.py builds on,
-# so they travel with it.
-FC_TOOLS_SRC = "\n".join(
+# so they travel with it. fc_tools.py registers the selectors source as a module.
+SELECTORS_SRC = (HERE / "shapebert_selectors.py").read_text(encoding="utf-8")
+FC_TOOLS_SRC = f"SELECTORS_SOURCE = {SELECTORS_SRC!r}\n" + "\n".join(
     (HERE / "cadkit" / f).read_text(encoding="utf-8")
     for f in ("gear_profile.py", "sheet_profile.py", "fc_tools.py")
 )
@@ -115,6 +116,7 @@ READ_ONLY_TOOLS = {
     "get_job_result",
     "get_document_info",
     "inspect_object",
+    "list_faces",
     "measure",
     "check_geometry",
     "get_view",
@@ -566,6 +568,24 @@ def inspect_object(name: str) -> str:
     return _json(_fc("inspect_object", name=name))
 
 
+@tool(data=FREECAD_DATA)
+def list_faces(name: str) -> str:
+    """Every face of one object (by Name or Label): name (Face1 ...), surface type
+    (plane, cylinder, cone, sphere, torus, bspline ...), centre, area and bounding box,
+    plus the outward normal of a plane, the axis, axis point, radius and internal
+    (a hole wall) of a cylinder, the axis and half angle of a cone.
+
+    Face numbers change when the part changes. Tools that take faces (fillet_edges,
+    chamfer_edges, fea_setup) also take face selectors, found again from the geometry:
+      "top", "bottom", "+X", "-X", "+Y", "-Y" ("+Z" = top, "-Z" = bottom; "top face"
+      and "+X side" work too): the flat faces facing that way, the outermost ones;
+      "largest planar face"; "cylindrical faces radius 4" or "... diameter 8" (holes
+      and round outsides of that size); "bore": the widest internal cylinder.
+    A selector that matches nothing, or "largest planar face" / "bore" with a tie, is
+    refused with the candidate faces. Lists the first 300 faces."""
+    return _checked(lambda: _fc("list_faces", name=build_checks.object_ref(name)))
+
+
 @tool()
 def measure(name: str, density_kg_m3: float | None = None) -> str:
     """Volume, area, bounding box, centre of mass, face/edge counts, cylindrical faces
@@ -786,42 +806,53 @@ def pattern_linear(
     )
 
 
-@tool()
-def fillet_edges(name: str, radius: float, edges: str | list[str] = "all", label: str | None = None) -> str:
-    """Parametric fillet (Part::Fillet) of radius mm on edges of an existing solid.
-    edges = "all", "top" (edges in the top plane: outline and hole rims), "bottom",
-    "vertical" (edges parallel to Z) or a list of names like ["Edge1", "Edge5"]; seam
-    edges of round faces are skipped. Edges are stored by number, so look at the part
-    again after a Params change that alters its shape. Returns the new object's name,
-    label, validity, volume, size and the edges used."""
-    return _checked(
-        lambda: _fc(
+def _round_edges(kind: str, name: str, size: float, size_name: str, edges, label) -> str:
+    def build():
+        names, selectors = build_checks.edges(edges)
+        return _fc(
             "round_edges",
-            kind="Fillet",
+            kind=kind,
             name=build_checks.object_ref(name),
-            size=build_checks.number(radius, "radius", positive=True),
-            edges=build_checks.edges(edges),
+            size=build_checks.number(size, size_name, positive=True),
+            edges=names,
+            selectors=selectors,
             label=build_checks.label(label),
         )
-    )
+
+    return _checked(build)
+
+
+@tool()
+def fillet_edges(name: str, radius: float, edges: str | list[str] = "all", label: str | None = None) -> str:
+    """Parametric fillet of radius mm on edges of an existing solid.
+
+    edges = one edge selector or a list of them. The fillet stores the selectors and
+    finds its edges again on every rebuild, so it follows Params changes:
+      "all"; "vertical" or "vertical edges" (edges parallel to Z); "concave edges"
+      (inside corners); "top" / "bottom" (edges of the top / bottom face);
+      "edges of <face selector>", e.g. "edges of top face", "edges of +X side",
+      "edges of bore", "edges of cylindrical faces radius 4" (face selectors as in
+      list_faces' description).
+    A list of names like ["Edge1", "Edge5"] instead fixes the edges by number, which
+    can move to other edges when the part changes. Seam edges of round faces are
+    skipped. A selector that matches nothing is refused, with what the part has.
+    The radius is the Size property: bind_parameters(<fillet>, {"Size": "Params.FilletR"}).
+    Returns the new object's name, label, validity, volume, size, the selectors and
+    the edges they found."""
+    return _round_edges("Fillet", name, radius, "radius", edges, label)
 
 
 @tool()
 def chamfer_edges(name: str, size: float, edges: str | list[str] = "all", label: str | None = None) -> str:
-    """Parametric chamfer (Part::Chamfer) of size mm on edges of an existing solid.
-    edges are chosen as in fillet_edges: "all", "top", "bottom", "vertical" or a list
-    like ["Edge1", "Edge5"]. Returns the new object's name, label, validity, volume,
-    size and the edges used."""
-    return _checked(
-        lambda: _fc(
-            "round_edges",
-            kind="Chamfer",
-            name=build_checks.object_ref(name),
-            size=build_checks.number(size, "size", positive=True),
-            edges=build_checks.edges(edges),
-            label=build_checks.label(label),
-        )
-    )
+    """Parametric chamfer of size mm on edges of an existing solid.
+
+    edges are chosen as in fillet_edges: a selector such as "all", "vertical",
+    "concave edges", "top", "edges of top face", "edges of bore" (or a list of them),
+    re-resolved on every rebuild; or a list of names like ["Edge1", "Edge5"], fixed by
+    number. Bind the size with bind_parameters(<chamfer>, {"Size": "Params.ChamferS"}).
+    Returns the new object's name, label, validity, volume, size, the selectors and
+    the edges they found."""
+    return _round_edges("Chamfer", name, size, "size", edges, label)
 
 
 @tool()
@@ -1061,23 +1092,29 @@ def fea_setup(
 
     material: one of steel (S235), aluminium (6061-T6), PETG, PLA; others are refused.
     The reply lists the values used.
-    fixed_faces: faces held completely still, e.g. ["Face1"]. This also blocks thermal
-    expansion within the face.
+    Faces: each list takes face selectors or face names, mixed if needed. Selectors
+    ("top", "bottom", "+X" ... "-Z", "largest planar face", "bore",
+    "cylindrical faces radius 4"; see list_faces) are found from the geometry, so they
+    pick the same faces however FreeCAD numbers them; names like "Face1" are taken as
+    given. A selector that matches nothing, or ties, is refused with the candidates.
+    fixed_faces: faces held completely still, e.g. ["bottom"] or ["Face1"]. This also
+    blocks thermal expansion within the face.
     sliding_faces: flat faces facing along x, y or z that may slide in their own plane
     but not move along their normal (a symmetry plane or a frictionless wall). Three of
     them facing x, y and z hold a part without restraining its thermal expansion.
     loads: list of
-      {"type": "force", "faces": ["Face2"], "value_n": 100, "direction": [0, 0, -1]}
+      {"type": "force", "faces": ["+X"], "value_n": 100, "direction": [0, 0, -1]}
         (total force in N spread over the faces, direction is any vector), or
-      {"type": "pressure", "faces": ["Face6"], "value_mpa": 0.1}
+      {"type": "pressure", "faces": ["top"], "value_mpa": 0.1}
         (positive presses on the face, negative pulls).
-    temperatures: list of {"faces": ["Face1"], "temperature_c": 100}.
+    temperatures: list of {"faces": ["-X"], "temperature_c": 100}.
     initial_temperature_c: start and reference temperature (default 20 °C).
     mesh_size_mm: largest element edge; about a third of the thinnest wall or less gives
     usable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that
     would give more than about 2 million elements (part volume / size^3 x 6) is refused.
     part: the object's Name or Label; refused if it matches more than one object.
-    Returns each named face's centre, normal and area, the material values and units."""
+    Returns every face used, with the selector or name that chose it, its centre,
+    normal and area, plus the material values and units."""
     try:
         mat = fea.material(material)
         checked = fea.check_setup(

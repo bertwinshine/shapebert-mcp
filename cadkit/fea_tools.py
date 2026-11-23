@@ -58,25 +58,33 @@ def _members(analysis, type_id=None, base=None):
     ]
 
 
-def _face_info(shape, names):
-    rows = []
-    for name in names:
-        index = int(name[4:])
-        if index > len(shape.Faces):
-            raise RuntimeError(f"{name} does not exist; the part has {len(shape.Faces)} faces")
-        face = shape.Faces[index - 1]
-        u0, u1, v0, v1 = face.ParameterRange
-        normal = face.normalAt((u0 + u1) / 2, (v0 + v1) / 2)
-        rows.append(
-            {
-                "face": name,
-                "centre_mm": _vec(face.CenterOfMass),
-                "normal": _vec(normal),
-                "area_mm2": _r(face.Area, 2),
-                "planar": face.Surface.TypeId == "Part::GeomPlane",
-            }
-        )
+def _face_info(shape, entries):
+    """Face names or selectors resolved to faces, each with the entry that found it."""
+    sel = _selectors()
+    rows, seen = [], set()
+    for entry in entries:
+        for index in sel.resolve_face(shape, entry):
+            if index in seen:
+                continue
+            seen.add(index)
+            face = shape.Faces[index - 1]
+            u0, u1, v0, v1 = face.ParameterRange
+            normal = face.normalAt((u0 + u1) / 2, (v0 + v1) / 2)
+            rows.append(
+                {
+                    "face": f"Face{index}",
+                    "selector": entry,
+                    "centre_mm": _vec(face.CenterOfMass),
+                    "normal": _vec(normal),
+                    "area_mm2": _r(face.Area, 2),
+                    "planar": face.Surface.TypeId == "Part::GeomPlane",
+                }
+            )
     return rows
+
+
+def _names(rows):
+    return [row["face"] for row in rows]
 
 
 def _remove_analysis(doc, analysis):
@@ -219,10 +227,16 @@ def fea_setup(
         raise RuntimeError(f"{part} has no solid to analyse")
     shape = obj.Shape
     _check_element_count(shape.Volume, mesh_size_mm, max_elements)
-    fixed_info = _face_info(shape, fixed_faces)
-    sliding_info = _face_info(shape, sliding_faces)
-    load_faces = [_face_info(shape, load["faces"]) for load in loads]
-    temp_faces = [_face_info(shape, t["faces"]) for t in temperatures]
+    try:
+        fixed_info = _face_info(shape, fixed_faces)
+        sliding_info = _face_info(shape, sliding_faces)
+        load_faces = [_face_info(shape, load["faces"]) for load in loads]
+        temp_faces = [_face_info(shape, t["faces"]) for t in temperatures]
+    except _selectors().SelectorError as e:
+        return _selector_refusal(e)
+    fixed_faces, sliding_faces = _names(fixed_info), _names(sliding_info)
+    loads = [{**load, "faces": _names(info)} for load, info in zip(loads, load_faces, strict=True)]
+    temperatures = [{**t, "faces": _names(info)} for t, info in zip(temperatures, temp_faces, strict=True)]
     initial_k = initial_temperature_c + 273.15
 
     old = doc.getObject(name)
