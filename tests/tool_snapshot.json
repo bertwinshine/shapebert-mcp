@@ -981,6 +981,41 @@
    }
   },
   {
+   "name": "create_document",
+   "description": "Create a new, empty FreeCAD document and make it the active one, so the next\nbuild tools work in it. name: letters, digits and _ (up to 64), starting with a\nletter; FreeCAD adds a number if that name is taken. Returns the document name.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "create_documentArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "create_documentOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "doctor",
    "description": "Setup report in one call. Returns whether FreeCAD is reachable and its listener\nversion (with the fix when the listener in FreeCAD is out of date), free-form code on or off, work folder, knowledge folders, which optional\nadd-ons (FCGear, SheetMetal, Fasteners) are installed with what each adds and its\ninstall steps, and whether the FEM programs (CalculiX, Gmsh) are found.",
    "inputSchema": {
@@ -1846,6 +1881,41 @@
    }
   },
   {
+   "name": "open_document",
+   "description": "Open a saved .FCStd document from the work folder and make it the active one\n(a document that is already open is only made active). Relative paths are taken\nin the work folder; paths outside it are refused. Returns the document name.",
+   "inputSchema": {
+    "properties": {
+     "path": {
+      "title": "Path",
+      "type": "string"
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "title": "open_documentArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "open_documentOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "pattern_linear",
    "description": "Parametric linear pattern (Draft ortho array) of an existing object: count\ncopies, the original included, spacing mm apart along direction (default\n[1, 0, 0]). Bind the count with {\"NumberX\": \"Params.NSlots\"}; the step is the\nvector IntervalX (bind IntervalX.x etc.). Use the array as a boolean tool.\nReturns the array's name, solid count, volume and size.",
    "inputSchema": {
@@ -2400,6 +2470,85 @@
    },
    "annotations": {
     "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "set_requirements",
+   "description": "Store checks written from the user's request on an object (by Name or Label),\nreplacing earlier ones. They are saved with the document and measured by\nverify_requirements on the current shape, after any Params change.\n\nEach check is plain JSON:\n  {\"id\": \"holes\", \"kind\": \"hole_count\", \"target\": \"cylindrical faces diameter 11\",\n   \"value\": 6, \"unit\": \"count\", \"source_quote\": \"6 x M10 holes\"}\nid: letters, digits, _ or -, unique. source_quote: the request's exact words.\nkind, target, unit:\n  size                  axis \"X\"/\"Y\"/\"Z\", no target, unit \"mm\" (bounding box length)\n  hole_count            face selector of the holes, unit \"count\" (exact)\n  hole_diameter         face selector of the holes, unit \"mm\"\n  pitch_circle_diameter face selector of the holes, unit \"mm\" (circle through the hole axes)\n  hole_spacing          face selector of the holes, unit \"mm\" (centre to nearest centre)\n  thickness             face selector of one flat side (e.g. \"top\"), unit \"mm\": distance\n                        to the nearest opposite flat face behind it\n  volume                no target, unit \"mm3\"\n  mass                  no target, unit \"kg\", plus density_kg_m3\n  feature               face or edge selector that has to match something, no value\n                        or unit (a fillet: \"cylindrical faces radius 2\"; a chamfer:\n                        \"inclined planar faces\")\nSelectors are those of list_faces and fillet_edges. Holes are internal cylinders; a\nhole split into several faces counts once. tolerance: optional, default 0.01 mm,\n1 % for volume and mass; counts are exact. Unknown kinds or keys, numbers that are not\nfinite and positive, wrong units and selectors that do not parse are refused.\nReturns the stored check ids.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "requirements": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Requirements",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "requirements"
+    ],
+    "title": "set_requirementsArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "set_requirementsOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
+   "name": "verify_requirements",
+   "description": "Measure every check stored with set_requirements on the object's current shape.\nReturns all_pass, counts of pass / fail / not_measured, and per check: status,\nmeasured vs required value with unit and tolerance, the faces or edges used and the\nsource_quote. A selector that matches nothing fails with the candidate faces; a check\nthat cannot be measured (e.g. a pitch circle of holes on a straight line) is\nnot_measured with the reason. missing_features lists the feature checks that failed.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "verify_requirementsArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "verify_requirementsOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": true,
     "destructiveHint": false,
     "openWorldHint": false
    }

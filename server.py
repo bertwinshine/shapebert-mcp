@@ -29,6 +29,7 @@ from cadkit import (  # noqa: E402
     sheet_profile,
 )
 from cadkit import knowledge as kb  # noqa: E402
+from cadkit import requirements as reqs  # noqa: E402
 from cadkit.calculators import boat, fasteners, flanges, gears, shafts, sheet_metal, weldments  # noqa: E402
 
 INSTALL_MACRO = HERE / "install_autostart.FCMacro"
@@ -117,6 +118,7 @@ READ_ONLY_TOOLS = {
     "get_document_info",
     "inspect_object",
     "list_faces",
+    "verify_requirements",
     "measure",
     "check_geometry",
     "get_view",
@@ -586,6 +588,53 @@ def list_faces(name: str) -> str:
     return _checked(lambda: _fc("list_faces", name=build_checks.object_ref(name)))
 
 
+@tool(data=FREECAD_DATA)
+def set_requirements(name: str, requirements: list[dict]) -> str:
+    """Store checks written from the user's request on an object (by Name or Label),
+    replacing earlier ones. They are saved with the document and measured by
+    verify_requirements on the current shape, after any Params change.
+
+    Each check is plain JSON:
+      {"id": "holes", "kind": "hole_count", "target": "cylindrical faces diameter 11",
+       "value": 6, "unit": "count", "source_quote": "6 x M10 holes"}
+    id: letters, digits, _ or -, unique. source_quote: the request's exact words.
+    kind, target, unit:
+      size                  axis "X"/"Y"/"Z", no target, unit "mm" (bounding box length)
+      hole_count            face selector of the holes, unit "count" (exact)
+      hole_diameter         face selector of the holes, unit "mm"
+      pitch_circle_diameter face selector of the holes, unit "mm" (circle through the hole axes)
+      hole_spacing          face selector of the holes, unit "mm" (centre to nearest centre)
+      thickness             face selector of one flat side (e.g. "top"), unit "mm": distance
+                            to the nearest opposite flat face behind it
+      volume                no target, unit "mm3"
+      mass                  no target, unit "kg", plus density_kg_m3
+      feature               face or edge selector that has to match something, no value
+                            or unit (a fillet: "cylindrical faces radius 2"; a chamfer:
+                            "inclined planar faces")
+    Selectors are those of list_faces and fillet_edges. Holes are internal cylinders; a
+    hole split into several faces counts once. tolerance: optional, default 0.01 mm,
+    1 % for volume and mass; counts are exact. Unknown kinds or keys, numbers that are not
+    finite and positive, wrong units and selectors that do not parse are refused.
+    Returns the stored check ids."""
+    try:
+        checked = reqs.check_all(requirements)
+        ref = build_checks.object_ref(name)
+    except ValueError as e:
+        return _refused(str(e))
+    return _json(_fc("set_requirements", name=ref, checks=checked))
+
+
+@tool(data=FREECAD_DATA)
+def verify_requirements(name: str) -> str:
+    """Measure every check stored with set_requirements on the object's current shape.
+    Returns all_pass, counts of pass / fail / not_measured, and per check: status,
+    measured vs required value with unit and tolerance, the faces or edges used and the
+    source_quote. A selector that matches nothing fails with the candidate faces; a check
+    that cannot be measured (e.g. a pitch circle of holes on a straight line) is
+    not_measured with the reason. missing_features lists the feature checks that failed."""
+    return _checked(lambda: _fc("verify_requirements", name=build_checks.object_ref(name)))
+
+
 @tool()
 def measure(name: str, density_kg_m3: float | None = None) -> str:
     """Volume, area, bounding box, centre of mass, face/edge counts, cylindrical faces
@@ -649,6 +698,26 @@ def import_model(path: str) -> str:
     except safety.SafetyError as e:
         return _refused(str(e))
     return _json(_fc("import_file", path=str(source)))
+
+
+@tool(data=FREECAD_DATA)
+def create_document(name: str) -> str:
+    """Create a new, empty FreeCAD document and make it the active one, so the next
+    build tools work in it. name: letters, digits and _ (up to 64), starting with a
+    letter; FreeCAD adds a number if that name is taken. Returns the document name."""
+    return _checked(lambda: _fc("create_document", name=build_checks.new_name(name, "Part")))
+
+
+@tool(data=FREECAD_DATA)
+def open_document(path: str) -> str:
+    """Open a saved .FCStd document from the work folder and make it the active one
+    (a document that is already open is only made active). Relative paths are taken
+    in the work folder; paths outside it are refused. Returns the document name."""
+    try:
+        source = safety.safe_path(path, safety.DOCUMENT_FILES)
+    except safety.SafetyError as e:
+        return _refused(str(e))
+    return _json(_fc("open_document", path=str(source)))
 
 
 @tool(data=FREECAD_DATA)
@@ -1393,12 +1462,14 @@ def design_part(description: str) -> str:
         f"Design this part in FreeCAD: {description}\n\n"
         "Follow the working rules: 1) match_domain and read the domain file + conventions; "
         "2) search_examples and adapt the closest one; 3) ask for any missing CRITICAL value; "
-        "4) run the domain calculators (calc_*) before choosing dimensions; 5) build from a "
-        "Params spreadsheet with the structured tools (create_box, create_cylinder, set_placement, "
-        "bind_parameters, pattern_polar, pattern_linear, boolean, fillet_edges, chamfer_edges), "
-        "or run_freecad_code if it is switched on; 6) check_geometry, measure and get_view; "
-        "7) run the domain checks (hydrostatics / check_printability / calc checks); "
-        "8) report every value used, tagged given/default/calculated."
+        "4) run the domain calculators (calc_*) before choosing dimensions; 5) create_document, "
+        "then build from a Params spreadsheet with the structured tools (create_box, "
+        "create_cylinder, set_placement, bind_parameters, pattern_polar, pattern_linear, boolean, "
+        "fillet_edges, chamfer_edges); run_freecad_code only for a step no tool can do; "
+        "6) set_requirements from the numbers and features in the request (quote them), then "
+        "verify_requirements, and fix every fail; 7) check_geometry, measure and get_view; "
+        "8) run the domain checks (hydrostatics / check_printability / calc checks); "
+        "9) report the requirement table and every value used, tagged given/default/calculated."
     )
 
 

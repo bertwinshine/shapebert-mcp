@@ -1,5 +1,7 @@
 """Face and edge selector parsing; resolution needs FreeCAD and is tested live."""
 
+from types import SimpleNamespace
+
 import pytest
 from replies import load
 
@@ -22,6 +24,8 @@ server = pytest.importorskip("server")
         ("largest planar face", "largest planar face"),
         ("Largest flat face", "largest planar face"),
         ("bore", "bore"),
+        ("Inclined faces", "inclined planar faces"),
+        ("inclined planar faces", "inclined planar faces"),
         ("the bore", "bore"),
         ("cylindrical faces radius 4", "cylindrical faces radius 4"),
         ("cylindrical faces radius 4.0 mm", "cylindrical faces radius 4"),
@@ -134,3 +138,26 @@ def test_freecad_gets_the_selector_source_with_every_tool_call():
     exec(server.FC_TOOLS_SRC.splitlines()[0], namespace)
     assert namespace["SELECTORS_SOURCE"] == server.SELECTORS_SRC
     assert "class RoundEdges" in server.SELECTORS_SRC
+
+
+class _FakeFeature:
+    """Just enough of a Part::FeaturePython for RoundEdges.__init__."""
+
+    def __init__(self, view_object):
+        self.ViewObject = view_object
+
+    def addProperty(self, kind, name, group, doc):  # noqa: N802 - FreeCAD's API name
+        setattr(self, name, None)
+
+    def setEditorMode(self, name, mode):  # noqa: N802 - FreeCAD's API name
+        pass
+
+
+def test_round_edges_gets_the_default_view_provider_in_the_gui():
+    # Without ViewObject.Proxy the GUI sets no display mode and the result stays hidden.
+    gui = _FakeFeature(SimpleNamespace())
+    sel.RoundEdges(gui, "Fillet", object(), 2.0, ["edges of top"])
+    assert gui.ViewObject.Proxy == 0 and gui.Proxy is not None
+    headless = _FakeFeature(None)
+    sel.RoundEdges(headless, "Chamfer", object(), 1.0, ["vertical"])
+    assert headless.Selectors == ["vertical"]
