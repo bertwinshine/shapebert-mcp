@@ -144,6 +144,55 @@ def test_bad_checks_are_refused(check, message):
         reqs.check_one(check, 1)
 
 
+RULE_SOURCE = {"type": "calc", "tool": "calc_fasteners", "calc": "bolt_hole", "inputs": {"size": "M10"}}
+EDGE = {
+    "id": "edge",
+    "kind": "edge_distance",
+    "target": "cylindrical faces diameter 11",
+    "value": 22,
+    "unit": "mm",
+    "op": "min",
+    "source": RULE_SOURCE,
+}
+
+
+def test_a_rule_limit_names_its_rule_instead_of_a_quote():
+    edge = reqs.check_one(EDGE, 1)
+    assert edge["kind"] == "edge_distance" and edge["op"] == "min" and edge["value"] == 22
+    assert edge["source"] == RULE_SOURCE and "source_quote" not in edge
+    pitch = reqs.check_one(_with(EDGE, id="pitch", kind="hole_spacing"), 2)
+    assert pitch["kind"] == "hole_spacing"
+    knowledge = {
+        "type": "knowledge",
+        "file": "conventions.md",
+        "rule": "Spacing and material rules (keep parts manufacturable)",
+    }
+    assert reqs.check_one(_with(EDGE, source=knowledge), 3)["source"]["rule"].startswith("Spacing")
+    quoted = reqs.check_one(_with(EDGE, source=..., source_quote="30 mm from the rim"), 4)
+    assert quoted["source_quote"] == "30 mm from the rim" and "source" not in quoted
+
+
+@pytest.mark.parametrize(
+    "check, message",
+    [
+        (_with(EDGE, source_quote="6 x M10"), "exactly one of them"),
+        (_with(EDGE, source=...), "exactly one of them"),
+        (_with(EDGE, source={"type": "default", "where": "my guess"}), "knowledge or calc source"),
+        (_with(EDGE, source={"type": "prompt", "source_quote": "x"}), "uses source_quote"),
+        (_with(EDGE, source="calc_fasteners"), "knowledge or calc source"),
+        (_with(EDGE, source={**RULE_SOURCE, "calc": "nope"}), "has no calc 'nope'"),
+        (_with(EDGE, source={**RULE_SOURCE, "inputs": {"bolt": 10}}), "inputs do not fit"),
+        (_with(EDGE, source={"type": "knowledge", "file": "conventions.md", "rule": "Nope"}), "no heading"),
+        (_with(EDGE, unit="count"), "unit must be 'mm'"),
+        (_with(EDGE, target="the bolt holes"), "unknown face selector"),
+        (_with(EDGE, op="min", tolerance=1), "leave tolerance out"),
+    ],
+)
+def test_bad_rule_limits_are_refused(check, message):
+    with pytest.raises(reqs.RequirementError, match=message):
+        reqs.check_one(check, 1)
+
+
 def test_the_list_is_bounded_and_ids_are_unique():
     for bad in ([], None, {"holes": HOLES}, [HOLES] * (reqs.MAX_CHECKS + 1)):
         with pytest.raises(reqs.RequirementError, match="list of 1 to"):

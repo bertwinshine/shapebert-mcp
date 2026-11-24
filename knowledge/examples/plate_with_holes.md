@@ -5,8 +5,9 @@
 **Ask first if not given:** plate size? which bolt for the holes (M3/M4/M5/M6)?
 post diameter and height?
 
-**Conventions used:** clearance holes per conventions.md; edge distance = 2 x hole
-diameter; features centred; every driving size in Params ("Clean, editable models").
+**Conventions used:** clearance holes per conventions.md; edge distance from
+`calc_fasteners bolt_hole(size="M4")`; features centred; every driving size in Params
+("Clean, editable models").
 
 **Verified FreeCAD code (change the values in `params` to fit the request):**
 
@@ -21,7 +22,7 @@ params = {
     "PlateW": "30 mm",
     "Thk": "5 mm",
     "HoleD": "4.5 mm",  # M4 medium clearance (conventions.md)
-    "Edge": "9 mm",  # edge distance = 2 x hole diameter
+    "Edge": "9 mm",  # min_edge_distance_mm of calc_fasteners bolt_hole(size="M4")
     "PostD": "16 mm",
     "PostH": "30 mm",
 }
@@ -91,7 +92,7 @@ the loop above.
 
 **Notes:** holes sit symmetric along the length and centred across the width. Before
 shrinking the plate, check the material left between each hole and the plate edge still
-meets conventions.md. For a small plate, a large bolt may not fit - warn instead of
-overlapping material.
+meets conventions.md: the `edge_distance` requirement check does this on every verify.
+For a small plate, a large bolt may not fit - warn instead of overlapping material.
 
 **Verified by:** author (visual check in FreeCAD); rewritten parametric in Nov 2026

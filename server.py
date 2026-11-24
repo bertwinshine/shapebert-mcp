@@ -600,12 +600,22 @@ def set_requirements(name: str, requirements: list[dict]) -> str:
       {"id": "holes", "kind": "hole_count", "target": "cylindrical faces diameter 11",
        "value": 6, "unit": "count", "source_quote": "6 x M10 holes"}
     id: letters, digits, _ or -, unique. source_quote: the request's exact words.
+    A limit that comes from a design rule instead of the request takes source in place
+    of source_quote: a knowledge rule {"type": "knowledge", "file", "rule"} or a calculator
+    {"type": "calc", "tool", "calc", "inputs"}, checked as in set_parameters. E.g.
+      {"id": "edge", "kind": "edge_distance", "target": "cylindrical faces diameter 11",
+       "value": 22, "unit": "mm", "op": "min", "source": {"type": "calc",
+       "tool": "calc_fasteners", "calc": "bolt_hole", "inputs": {"size": "M10"}}}
     kind, target, unit:
       size                  axis "X"/"Y"/"Z", no target, unit "mm" (bounding box length)
       hole_count            face selector of the holes, unit "count" (exact)
       hole_diameter         face selector of the holes, unit "mm"
       pitch_circle_diameter face selector of the holes, unit "mm" (circle through the hole axes)
-      hole_spacing          face selector of the holes, unit "mm" (centre to nearest centre)
+      hole_spacing          face selector of the holes, unit "mm" (centre to nearest centre:
+                            the hole pitch)
+      edge_distance         face selector of the holes, unit "mm" (hole axis to the nearest
+                            outer edge of the part, in the section through the hole's middle;
+                            a bore or other inner cut-out is not an outer edge)
       thickness             face selector of one flat side (e.g. "top"), unit "mm": distance
                             to the nearest opposite flat face behind it
       volume                no target, unit "mm3"
@@ -635,9 +645,10 @@ def verify_requirements(name: str) -> str:
     """Measure every check stored with set_requirements on the object's current shape.
     Returns all_pass, counts of pass / fail / not_measured, and per check: status, op,
     measured vs required value with unit (and tolerance for eq), the faces or edges used
-    and the source_quote. A selector that matches nothing fails with the candidate faces.
-    When no hole has the diameter a hole_count or hole_diameter target asks for, the count
-    measures 0 and the diameter check fails with the nearest hole diameter as measured;
+    and the source_quote, or the source of a rule limit. A selector that matches nothing
+    fails with the candidate faces. When no hole has the diameter a hole_count or
+    hole_diameter target asks for, the count measures 0 and the diameter check fails
+    with the nearest hole diameter as measured;
     nearest_holes lists the closest hole sizes with their counts. A check that cannot be
     measured (e.g. a pitch circle of holes on a straight line) is not_measured with the
     reason. missing_features lists the feature checks that failed."""
@@ -1351,8 +1362,12 @@ def calc_flanges(calc: str, args: dict) -> str:
 @tool()
 def calc_fasteners(calc: str, args: dict) -> str:
     """Bolts, holes and fits (domain: fasteners-fits). calc =
-    bolt_hole(size='M6', fit='medium', tapped_material, head='socket'|'countersunk')
-        -> clearance/tap drill/counterbore/countersink/engagement/edge distance
+    bolt_hole(size='M6', fit='medium', tapped_material, head='socket'|'countersunk',
+              rule='machined'|'steel_structure')
+        -> clearance/tap drill/counterbore/countersink/engagement/edge distance/hole pitch
+    edge_distance(hole_d_mm, rule='machined'|'steel_structure') -> minimum hole centre to
+        edge and centre to centre for any hole diameter d0, with the rule's source
+        (machined: ShapeBert default; steel_structure: EN 1993-1-8 Table 3.3)
     fit(d_mm, fit_code='H7/g6') -> limits, min/max clearance, fit type
     tolerance(d_mm, zone='H7')"""
     return _call_calc(fasteners, calc, args)

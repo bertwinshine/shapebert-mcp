@@ -7,6 +7,8 @@ catalogue before production drawings.
 
 from __future__ import annotations
 
+from cadkit import hole_rules
+
 # size: (pitch, tap drill, clearance fine/medium/coarse, SHCS head dk, counterbore dia)
 METRIC = {
     "M2": (0.40, 1.6, 2.2, 2.4, 2.6, 3.8, 4.4),
@@ -42,23 +44,34 @@ def _norm(size: str) -> str:
     return s
 
 
+def edge_distance(hole_d_mm: float, rule: str = "machined") -> dict:
+    """Minimum hole centre to edge and centre to centre distance for a hole diameter."""
+    return hole_rules.limits(hole_d_mm, rule)
+
+
 def bolt_hole(
-    size: str, fit: str = "medium", tapped_material: str | None = None, head: str = "socket"
+    size: str,
+    fit: str = "medium",
+    tapped_material: str | None = None,
+    head: str = "socket",
+    rule: str = "machined",
 ) -> dict:
     """Everything needed to model holes for one metric screw size."""
     s = _norm(size)
     p, tap, fine, med, coarse, dk, cb = METRIC[s]
     d = float(s[1:])
     clearance = {"fine": fine, "medium": med, "coarse": coarse}[fit]
+    spacing = hole_rules.limits(clearance, rule)
     out = {
         "size": s,
         "nominal_d_mm": d,
         "pitch_mm": p,
         "clearance_hole_mm": {"fine": fine, "medium": med, "coarse": coarse, "chosen": clearance},
         "tap_drill_mm": tap,
-        "min_edge_distance_mm": round(2 * clearance, 2),
-        "min_hole_to_hole_mm": round(2 * clearance, 2),
-        "notes": ["edge distance = 2 x hole dia and 1 x dia of web between holes (conventions.md)"],
+        "min_edge_distance_mm": spacing["min_edge_distance_mm"],
+        "min_hole_to_hole_mm": spacing["min_hole_to_hole_mm"],
+        "spacing_rule": {k: spacing[k] for k in ("rule", "factors_x_d0", "source", "verification")},
+        "notes": [f"edge distance and hole pitch for d0 = {clearance} mm: {spacing['source']}"],
     }
     if head == "socket":
         out["counterbore"] = {

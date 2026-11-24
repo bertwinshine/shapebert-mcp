@@ -53,11 +53,12 @@ screws, H7/g6 for sliding, H7/k6 for keyed hubs, and REPORT each choice.
   fit in the other for removability.
 
 ## 4. Verification checks (must verify, report result)
-1. Edge distance >= 2 x hole diameter; web between holes >= 1 x diameter
-   (conventions.md). For sheet metal use the sheet-metal rules instead.
-   Exception - bolted CIRCULAR FLANGES (pipe/shaft/motor flanges): hole centre to
-   rim >= ~1.1-1.5 x hole diameter is normal practice (EN 1092-1 / ASME B16.5
-   flanges sit around 1.1-1.3 d) [RULE]; report the value, flag only if < 1.1 d.
+1. Edge distance and hole pitch: the minimums from `calc_fasteners` (conventions.md,
+   "Spacing and material rules"); custom circular flanges use the same rule. For
+   sheet metal use the sheet-metal rules instead.
+   Standard pipe flanges (EN 1092-1, from `calc_flanges`): the standard fixes the
+   outside diameter, bolt circle and hole size, and its rim is narrower than these
+   rules. Build it as the standard gives, leave out the edge-distance check, and say so.
 2. Counterbore/countersink does not break through the part or into a neighbour.
 3. Tapped depth < part thickness - 1 mm (or a through tap is intended).
 4. Wrench/hex-key access: clear space above the head >= head height + key length.
@@ -78,11 +79,13 @@ tolerance zone, IT grade, hole basis, clearance/transition/interference fit.
 - DIN 974-1 - counterbore diameters; ISO 15065 - countersinks for screws.
 - ISO 286-1/-2 - limits and fits; ISO 2768 - general tolerances (m = medium).
 - ISO 8734 - dowel pins; VDI 2230 - systematic bolted-joint calculation [CERT].
+- EN 1993-1-8 Table 3.3 - minimum end/edge distance and bolt spacing in structural
+  steelwork (`calc_fasteners` rule `steel_structure`).
 Tell the user bolt strength/preload for a critical joint is a separate VDI 2230 step.
 
 ## 7. Manufacturing limits and design rules
 - Prefer the same screw size on one part (fewer tools, fewer mistakes).
-- Blind tapped holes: leave thread run-out; avoid tapping < 1 d from an edge.
+- Blind tapped holes: leave thread run-out; edge distance as section 4 (d0 = tap drill).
 - Laser/plasma-cut holes: min hole diameter ~ 1 x material thickness [RULE].
 - Printed holes shrink: model printed clearance holes +0.2-0.3 mm, or drill out.
 - Never thread directly into soft plastic for repeated assembly: use inserts.
