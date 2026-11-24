@@ -45,7 +45,7 @@ jobs:
 
   freecad:
     # Live tests against real headless FreeCAD (conda-forge build).
-    # Pinned so the apt package versions only change when we bump it.
+    # Pinned so the runner image only changes when we bump it.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -63,27 +63,28 @@ jobs:
         with:
           miniforge-version: latest
           python-version: "3.11"
-      - run: conda install -y -c conda-forge "freecad=${{ matrix.freecad }}"
-      # conda-forge FreeCAD has no FEM solver programs; the FEA tests need both. The
-      # tests would only skip without them, so check they are really on the PATH.
-      # A stalled apt mirror can otherwise hang this step until the job limit.
-      - name: install CalculiX and Gmsh
-        timeout-minutes: 8
-        run: |
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y --no-install-recommends calculix-ccx gmsh
-          command -v ccx && command -v gmsh
+      # The FEA tests need the CalculiX (ccx) and Gmsh programs. One solve with FreeCAD
+      # keeps their libraries compatible and puts both in the env's bin folder, where
+      # FreeCAD looks before the PATH. The apt mirror stalled this job more than once.
+      - run: conda install -y -c conda-forge "freecad=${{ matrix.freecad }}" calculix gmsh
       - run: pip install -r requirements.txt pytest
-      # The unpinned conda and apt packages can change between runs; log what this run got.
-      # FreeCAD looks for ccx in its own bin folder (the conda env) before the PATH.
+      # The unpinned conda packages can change between runs; log what this run got.
+      # The FEA tests only skip without ccx or gmsh, so a missing one fails here.
       - name: tool versions
         run: |
           conda list "^(freecad|occt|vtk|python|calculix|gmsh)$"
-          ls -l "$CONDA_PREFIX/bin/ccx" 2>/dev/null || echo "no ccx in the conda env"
-          echo "ccx on PATH: $(command -v ccx)"
-          ccx -v | head -3 || true
-          echo "gmsh on PATH: $(command -v gmsh)"
+          for tool in ccx gmsh; do
+            found=$(command -v "$tool" || true)
+            echo "$tool on PATH: ${found:-none}"
+            if [ "$found" != "$CONDA_PREFIX/bin/$tool" ]; then
+              echo "::error::$tool is not in the conda env ($CONDA_PREFIX/bin)"
+              exit 1
+            fi
+          done
+          # ccx -v always exits with 201, so check what it prints instead.
+          ccx_version=$(ccx -v 2>&1 || true)
+          echo "$ccx_version"
+          grep -q "Version" <<< "$ccx_version" || { echo "::error::ccx -v printed no version"; exit 1; }
           gmsh --version
       - name: start headless listener
         run: |
@@ -96,8 +97,9 @@ jobs:
         run: cp -r /tmp/freecad_mcp_test_work/fea /tmp/fea_buckling_only || true
       - if: ${{ !cancelled() }}
         run: pytest -q tests/integration
+      # Absent when an earlier step failed before the listener started.
       - if: failure()
-        run: cat listener.log
+        run: if [ -f listener.log ]; then cat listener.log; fi
       - name: collect solver files
         if: failure()
         run: |
