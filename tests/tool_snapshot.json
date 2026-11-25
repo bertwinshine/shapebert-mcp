@@ -510,6 +510,47 @@
    }
   },
   {
+   "name": "calc_hand_check",
+   "description": "Closed-form estimate to compare an FEA result with (domain: fea-mechanics).\nUnits: mm, N, MPa, kg/m^3, W/(m K), K, °C. case and inputs =\naxial_bar(force_n, area_mm2, length_mm, E_mpa) -> stress, elongation\ncantilever(force_n, length_mm, width_mm, height_mm, E_mpa, nu=0.3) -> tip deflection\n    from bending and from shear (k = 5/6), root bending stress; load across height_mm\neuler_column(length_mm, E_mpa, width_mm, height_mm, end_condition=\"fixed-free\",\n    nu=0.3, yield_mpa=None) -> critical load, with the shear correction too;\n    end_condition fixed-free (K 2), pinned-pinned (1), fixed-pinned (0.7), fixed-fixed (0.5)\nthin_cylinder(pressure_mpa, mean_radius_mm, thickness_mm) -> hoop and axial stress\nthick_cylinder(inner_radius_mm, outer_radius_mm, inner_pressure_mpa,\n    outer_pressure_mpa=0) -> Lame hoop, radial and closed-end axial stress\nkirsch_hole(remote_stress_mpa, hole_diameter_mm=None, plate_width_mm=None) -> Kt 3 peak\nbeam_frequency(length_mm, width_mm, height_mm, E_mpa, density_kg_m3,\n    supports=\"clamped-free\", mode=1) -> natural frequency in Hz; supports\n    clamped-free, pinned-pinned, clamped-clamped, free-free\nplane_wall(k_w_mk, area_mm2, thickness_mm, t_hot_c, t_cold_c) -> heat flow, resistance\nthermal_expansion(alpha_1_k, delta_t_k, length_mm, E_mpa=None) -> free elongation and\n    the fully restrained stress\nEach reply gives results, the formula, its assumptions, how 3D FEA usually differs,\nvalidity checks (pass/fail) and the source.",
+   "inputSchema": {
+    "properties": {
+     "case": {
+      "title": "Case",
+      "type": "string"
+     },
+     "inputs": {
+      "additionalProperties": true,
+      "title": "Inputs",
+      "type": "object"
+     }
+    },
+    "required": [
+     "case",
+     "inputs"
+    ],
+    "title": "calc_hand_checkArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "calc_hand_checkOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "calc_shafts",
    "description": "Shafts, keys and bearings (domain: shafts-bearings). calc =\nshaft_diameter(torque_nm, bending_nm=0, tau_allow_mpa | material_yield_mpa, safety=2,\n               keyway=True)\nkey(shaft_d_mm, torque_nm, hub_length_mm, p_allow_mpa=100) -> DIN 6885 key + pressure\nbearing_life(c_kn, p_kn, rpm, ball=True, required_hours) -> L10, L10h, C required\nequivalent_load(fr_kn, fa_kn, x, y, e)",
    "inputSchema": {
@@ -1127,7 +1168,7 @@
   },
   {
    "name": "fea_convergence",
-   "description": "Mesh convergence check of a fea_setup analysis: solves it at three mesh sizes,\neach 1.5 x finer, ending at the setup's mesh_size_mm (h): 2.25 h, 1.5 h, h. It\nfollows one key result: max displacement (static, thermomechanical), first natural\nfrequency (modal), lowest load factor (buckling) or the largest heat flow\n(thermal). converged is true when the last change is under 2 %; otherwise rerun\nfea_setup with a smaller mesh_size_mm and check again. The coarser meshes are\ncheap, so it takes about 1.4 x as long as one fea_run; a run longer than timeout_s\nreturns still_running and a job_id for get_job_result. The results of mesh h stay\nloaded and fea_results shows the verdict in its assumptions block. Run it before\ncalling a result final.",
+   "description": "Mesh convergence check of a fea_setup analysis: solves it at three mesh sizes,\neach 1.5 x finer, ending at the setup's mesh_size_mm (h): 2.25 h, 1.5 h, h. It\nfollows these results: static and thermomechanical, max displacement and the max\nvon Mises stress outside the flagged zones (within excluded_within_mm = 2 x the\ncoarsest mesh size of a fixed face, sharp inside edge or concentrated load, the same\nzone for all three meshes); modal, the first natural frequency; buckling, the lowest\nload factor; thermal, the largest heat flow. A result has converged when its last\nchange is under 2 %; converged_quantities and not_converged name them, and\nconverged is true only when all have. Otherwise rerun fea_setup with a smaller\nmesh_size_mm and check again. The coarser meshes are\ncheap, so it takes about 1.4 x as long as one fea_run; a run longer than timeout_s\nreturns still_running and a job_id for get_job_result. The results of mesh h stay\nloaded and fea_results shows the verdict in its assumptions block. Run it before\ncalling a result final.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -1165,7 +1206,7 @@
   },
   {
    "name": "fea_results",
-   "description": "Results of a solved analysis, units mm / N / MPa / °C / W / Hz.\nStatic: max von Mises stress and where, max displacement and where, the reaction\nforce sum at the fixed faces (equilibrium_ok: it balances the applied loads),\nthe mesh size and the safety factor against yield. Also the peak von Mises stress\naway from singular spots (more than 2 mesh sizes from fixed faces and sharp inside\nedges) with its safety factor: report that one when the overall peak sits at such\na spot.\nModal: each mode's natural frequency, its peak motion direction and place, and the\npart mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).\nThermal: min/max temperature and where, heat flow into the part at each\nfixed-temperature face (heat_balance_ok: in = out).\nThermal transient: as thermal at the last time step (time_s), and each probe also\ngets history_s_c, its temperature [time s, °C] at every step.\nThermomechanical: as static, plus the temperature range.\nBuckling: load factor and critical load per mode; lowest_load_factor below ~1 means\nthe applied load would buckle the ideal part (real parts buckle lower, see note).\nprobes: points [x, y, z] in mm; returns the values at the nearest mesh node\n(temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.\nThat node can be up to one mesh size away; node_at_mm gives its position. A probe\nwhose node is next to a fixed face or sharp inside edge gets near_singularity.\nEvery reply has `assumptions`: analysis type; element type and order; mesh size,\nnode and element count and mesher; material values used, each with its source;\nevery support, load and temperature with selector, face, centre, normal and value;\nunits; CalculiX version, threads and mesh/solve times; the mesh convergence check;\nand `warnings` (first-order elements, peak stress at a singularity, convergence\nnot checked or not reached, defaults used). Show that block with every result.\nAlso a `note` on the limits of this simplified linear check, and `ccx`: the\nCalculiX binary, version and thread count that produced the results.",
+   "description": "Results of a solved analysis, units mm / N / MPa / °C / W / Hz.\nStatic: max von Mises stress and where, max displacement and where, the reaction\nforce sum at the fixed faces (equilibrium_ok: it balances the applied loads),\nthe mesh size and the safety factor against yield. Also the peak von Mises stress\naway from singular spots (more than 2 mesh sizes from fixed faces, sharp inside\nedges and concentrated loads: a load on a vertex, an edge or a face smaller than\n(2 x mesh size)^2) with its safety factor: report that one when the overall peak\nsits at such a spot.\nModal: each mode's natural frequency, its peak motion direction and place, and the\npart mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).\nThermal: min/max temperature and where, heat flow into the part at each\nfixed-temperature face (heat_balance_ok: in = out).\nThermal transient: as thermal at the last time step (time_s), and each probe also\ngets history_s_c, its temperature [time s, °C] at every step.\nThermomechanical: as static, plus the temperature range.\nBuckling: load factor and critical load per mode; lowest_load_factor below ~1 means\nthe applied load would buckle the ideal part (real parts buckle lower, see note).\nprobes: points [x, y, z] in mm; returns the values at the nearest mesh node\n(temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.\nThat node can be up to one mesh size away; node_at_mm gives its position. A probe\nwhose node is next to a fixed face or sharp inside edge gets near_singularity.\nEvery reply has `assumptions`: analysis type; element type and order; mesh size,\nnode and element count and mesher; material values used, each with its source;\nevery support, load and temperature with selector, face, centre, normal and value;\nunits; CalculiX version, threads and mesh/solve times; the mesh convergence check;\nand `warnings` (first-order elements, concentrated loads, peak stress at a\nsingularity, convergence not checked or not reached, defaults used). Show that\nblock with every result.\nAlso a `note` on the limits of this simplified linear check, and `ccx`: the\nCalculiX binary, version and thread count that produced the results.",
    "inputSchema": {
     "properties": {
      "name": {

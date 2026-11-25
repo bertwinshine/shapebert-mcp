@@ -586,6 +586,41 @@ def test_fea_buckling_fixed_free_column_matches_euler():
     assert "imperfections" in res["note"]
 
 
+TIP_LOAD = [{"type": "force", "faces": ["+X"], "value_n": 1000, "direction": [0, 0, -1]}]
+
+
+def _cantilever_tip_load(part):
+    """200 x 20 x 20 steel cantilever, x = 0 fixed, 1000 N down on the +X end face, 4 mm mesh."""
+    setup = J(server.fea_setup(part, "steel", ["-X"], TIP_LOAD, mesh_size_mm=4))
+    assert setup.get("ok") is not False, setup
+    assert J(server.fea_run(timeout_s=300)).get("ok") is not False
+    return setup, J(server.fea_results(probes=[[200, 10, 10]]))
+
+
+@needs_solver
+def test_fea_tip_load_on_a_small_face_is_flagged_as_a_concentrated_load():
+    """8 mm chamfers on the end edges leave a 4 x 4 mm end face: 16 mm^2 < (2 x 4 mm)^2."""
+    J(server.create_box(200, 20, 20, name="Beam"))
+    J(server.chamfer_edges("Beam", 8, "edges of +X face", label="Tip"))
+    setup, res = _cantilever_tip_load("Tip")
+    assert setup["loads"][0]["face_info"][0]["area_mm2"] == pytest.approx(16)
+    warnings = res["assumptions"]["warnings"]
+    load = next(w["message"] for w in warnings if w["code"] == "load_singularity")
+    assert "16.0 mm^2" in load and "64.0 mm^2" in load
+    assert res["probes"][0]["near_singularity"] == {"kind": "small loaded face", "distance_mm": 0.0}
+    assert "probe_at_singularity" in [w["code"] for w in warnings]
+
+
+@needs_solver
+def test_fea_same_load_spread_over_the_end_face_is_not_flagged():
+    J(server.create_box(200, 20, 20, name="Beam"))
+    setup, res = _cantilever_tip_load("Beam")
+    assert setup["loads"][0]["face_info"][0]["area_mm2"] == pytest.approx(400)
+    codes = [w["code"] for w in res["assumptions"]["warnings"]]
+    assert "load_singularity" not in codes and "probe_at_singularity" not in codes
+    assert "near_singularity" not in res["probes"][0]
+
+
 def test_fea_setup_replaces_an_analysis_and_refuses_bad_faces():
     J(server.create_box(BEAM_L, BEAM_B, BEAM_H, name="Beam"))
     force = {"type": "force", "faces": ["Face2"], "value_n": 10, "direction": [0, 1, 0]}

@@ -36,7 +36,7 @@ knowledge base, the exact calculators and the checks - use them every time.
   `fea_convergence`
 - Calculators (exact maths, never do this arithmetic in your head):
   `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld`, `calc_fasteners`, `calc_shafts`,
-  `calc_flanges`
+  `calc_flanges`, `calc_hand_check` (closed-form estimates to compare FEA with)
 - Standard sizes (flanges, keys, threads, profiles) come from a `calc_*` table or a
   domain file, never from memory. If no table covers the size, say so and ask.
 - Faces and edges: pick them with selectors ("top", "-X", "bore", "cylindrical faces
@@ -208,12 +208,21 @@ values", follow conventions.md / the domain defaults and report every value chos
   and load (selector, face, centre, normal, value), units, solver version, and every
   warning in it, word for word.
 - Never report stress at a support or a singularity as a result. When the warnings
-  say the peak sits next to a fixed face or sharp inside edge, report
-  `max_von_mises_away_from_singularities_mpa` and its safety factor instead, and say
-  why. Treat a probe marked `near_singularity` the same way.
-- Run `fea_convergence` before calling a result final. If it is not converged, refine
-  `mesh_size_mm` in `fea_setup` and check again; until then, call the result
-  preliminary.
+  say the peak sits next to a fixed face, a sharp inside edge or a concentrated load
+  (`load_singularity`: a load on a vertex, an edge or a face smaller than
+  (2 x mesh size)^2), report `max_von_mises_away_from_singularities_mpa` and its
+  safety factor instead, and say why. Treat a probe marked `near_singularity` the same
+  way. Suggest a real contact area for a concentrated load and a fillet radius for a
+  sharp inside corner.
+- Run `fea_convergence` before calling a result final. It names the results that
+  converged and those that did not (displacement and the stress outside the flagged
+  zones for static runs). If any did not, refine `mesh_size_mm` in `fea_setup` and
+  check again; until then, call that result preliminary.
+- After an FEA run on a part close to a textbook case (axial bar, cantilever, column,
+  thin or thick cylinder, plate with a hole, beam frequency, plane wall, thermal
+  expansion), run `calc_hand_check` for it and compare. Explain the difference from
+  `domains/fea-mechanics.md` (its sign and typical size for that case). A difference
+  over about 20 % means: check the loads, supports and units before reporting.
 - List every material value the block marks as a default (the table values for the
   chosen material, a defaulted initial temperature) among the assumptions at the end
   of the report, by name and value.

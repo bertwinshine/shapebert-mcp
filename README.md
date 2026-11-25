@@ -45,7 +45,7 @@ cut to its end, and `get_job_result` pages through all of it.
 | Builders | `build_spur_gear`, `build_ring_gear`, `build_sheet_profile` |
 | Domain checks | `hydrostatics`, `check_printability` |
 | FEA (CalculiX) | `fea_setup`, `fea_run`, `fea_results`, `fea_convergence`: linear static (stress, displacement, reactions, safety factor), modal (natural frequencies), steady and transient heat conduction (temperatures, heat flow), thermal stress, linear buckling; every result with its assumptions and a mesh convergence check |
-| Calculators | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld`, `calc_fasteners`, `calc_shafts`, `calc_flanges` |
+| Calculators | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld`, `calc_fasteners`, `calc_shafts`, `calc_flanges`, `calc_hand_check` |
 | Knowledge | `match_domain`, `list_knowledge`, `read_knowledge`, `search_examples`, `save_example`, `log_correction` |
 
 The Build tools make plates, flanges, bolt circles, rows of holes or slots, fillets
@@ -104,13 +104,24 @@ type, the element type and order (C3D10, second-order tetrahedra, by default), m
 size, node and element count and the Gmsh version, the material values the analysis
 used with their source, every support, load and temperature with the selector that
 chose it and the face's centre and normal, the units, and the CalculiX version and
-mesh and solve times. Its `warnings` list first-order elements, a peak stress within
-two mesh sizes of a fixed face or a sharp inside edge (a singularity that grows as the
-mesh is refined; the reply then also gives the peak away from those spots), a mesh
-that is not checked or not converged, and every default that was used.
+mesh and solve times. Its `warnings` list first-order elements, a concentrated load
+(on a vertex, an edge, or a face smaller than (2 x mesh size)^2), a peak stress within
+two mesh sizes of such a load, a fixed face or a sharp inside edge (a singularity that
+grows as the mesh is refined; the reply then also gives the peak outside those zones),
+a mesh that is not checked or not converged, and every default that was used.
 `fea_convergence` solves the analysis again at 2.25 and 1.5 times its mesh size and
-reports the change in the key result (displacement, first frequency, buckling factor
-or heat flow); under 2 % counts as converged.
+reports the change in each followed result: for static runs the displacement and the
+peak stress outside the flagged zones, otherwise the first frequency, buckling factor
+or heat flow. Under 2 % counts as converged, and the reply names which results
+converged.
+
+`calc_hand_check` gives the closed-form estimate to compare an FEA result with: axial
+bar, cantilever with its shear deflection, Euler column with its K factor (and the
+shear correction), thin and thick (Lame) cylinder, plate with a hole (Kt = 3), beam
+natural frequency, plane-wall conduction and thermal expansion. Each answer names its
+formula, assumptions, validity checks, how 3D FEA usually differs and the source.
+`knowledge/domains/fea-mechanics.md` explains each of them, plus torsion,
+singularities and mesh convergence.
 
 `run_freecad_code` runs each script in a fresh namespace and returns the result,
 any printed output, and a summary of every object the script created. If the
@@ -134,6 +145,7 @@ The server also exposes the knowledge files as MCP resources
 | Fasteners, holes and fits | `calc_fasteners`: ISO 273 holes, tap drills, counterbores, ISO 286 fits | `measure` counts holes by diameter |
 | Shafts, keys and bearings | `calc_shafts`: shaft diameter, DIN 6885 keys, ISO 281 bearing life | `measure` |
 | FDM 3D printing | | `check_printability` (fdm) |
+| FEA and mechanics hand checks | `calc_hand_check`: closed-form estimates to compare FEA with | `fea_results`, `fea_convergence` |
 
 To add a domain, copy `knowledge/domains/_template.md`, fill it in, and add a row
 to `knowledge/domains/_index.md`. Nothing else needs to change.
@@ -298,7 +310,8 @@ formula, the tolerance and why, and the accepted FEA result. `pytest tests/valid
 runs them against a listener (about 30 s): every value has to be within its tolerance,
 and on the FreeCAD, CalculiX and Gmsh versions a result was frozen with, it must not
 move by more than 1e-6 relative. `python tests/validation/report.py` writes the page again;
-with `--freeze "reason"` it also accepts the new results.
+with `--freeze "reason"` it also accepts the new results. Citations marked "edition/section
+to be checked" still need that detail confirmed against the book.
 
 ## Benchmark
 
@@ -513,7 +526,7 @@ you before the risky ones.
 | `check_geometry`, `check_model_structure`, `get_view` | Read-only |
 | `compare_shapes`, `hydrostatics`, `check_printability` | Read-only |
 | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld` | Read-only |
-| `calc_fasteners`, `calc_shafts`, `calc_flanges` | Read-only |
+| `calc_fasteners`, `calc_shafts`, `calc_flanges`, `calc_hand_check` | Read-only |
 | `match_domain`, `list_knowledge`, `read_knowledge`, `search_examples` | Read-only |
 | `fea_results` | Read-only |
 | `create_box`, `create_cylinder` | Changes model |

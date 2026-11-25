@@ -43,6 +43,7 @@ def test_every_domain_follows_the_template(kb_copy):
         ("stepped shaft with a keyway and two ball bearings", "shafts-bearings.md"),
         ("PETG phone stand I can 3D print", "fdm-3d-printing.md"),
         ("flange OD 120, six M8 holes on a 90 mm pitch circle", "fasteners-fits.md"),
+        ("FEA of the bracket: von Mises stress and deflection", "fea-mechanics.md"),
     ],
 )
 def test_match_domain_top_hit(kb_copy, request_text, expected):

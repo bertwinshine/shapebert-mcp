@@ -18,18 +18,18 @@
    "label": "Free thermal elongation",
    "unit": "mm",
    "formula": "alpha dT L",
-   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Section 2.5, thermal effects",
+   "citation": "Timoshenko & Goodier, Theory of Elasticity (thermal stress chapter), or Gere & Goodno, Mechanics of Materials (thermal effects), edition/section to be checked",
    "tolerance_pct": 2,
-   "tolerance_reason": "Free uniform expansion is a linear displacement field, exact for any mesh; the band catches a support that restrains the bar."
+   "tolerance_reason": "Statically determinate supports leave the expansion free: exact elongation, zero stress."
   },
   {
    "id": "max_von_mises_mpa",
    "label": "Peak von Mises stress (zero in theory; error relative to E alpha dT, the stress of a fully clamped bar)",
    "unit": "MPa",
    "formula": "0 for a free bar",
-   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Section 2.5, thermal effects (a statically determinate structure carries no thermal stress)",
+   "citation": "Timoshenko & Goodier, Theory of Elasticity (thermal stress chapter), or Gere & Goodno, Mechanics of Materials (thermal effects), edition/section to be checked",
    "tolerance_pct": 2,
-   "tolerance_reason": "Any stress means the supports restrain the expansion; 2 % of the clamped-bar stress (about 5 MPa) is the band."
+   "tolerance_reason": "Statically determinate supports leave the expansion free: exact elongation, zero stress."
   }
  ]
 }

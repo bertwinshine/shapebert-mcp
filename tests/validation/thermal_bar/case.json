@@ -16,36 +16,36 @@
    "label": "Temperature near x = 25 (error relative to the 80 K span)",
    "unit": "°C",
    "formula": "T(x) = T_hot - (T_hot - T_cold) x / L, at the x of the probe's node",
-   "citation": "F. P. Incropera, D. P. DeWitt, T. L. Bergman, A. S. Lavine, Fundamentals of Heat and Mass Transfer, 7th ed., Wiley 2011, Section 3.1 (the plane wall)",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
    "tolerance_pct": 1,
-   "tolerance_reason": "A linear temperature field lies in the element space, so the FEA should match to solver precision."
+   "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   },
   {
    "id": "temperature_x50_c",
    "label": "Temperature near x = 50 (error relative to the 80 K span)",
    "unit": "°C",
    "formula": "T(x) = T_hot - (T_hot - T_cold) x / L, at the x of the probe's node",
-   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Section 3.1 (the plane wall)",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
    "tolerance_pct": 1,
-   "tolerance_reason": "As for x = 25."
+   "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   },
   {
    "id": "temperature_x75_c",
    "label": "Temperature near x = 75 (error relative to the 80 K span)",
    "unit": "°C",
    "formula": "T(x) = T_hot - (T_hot - T_cold) x / L, at the x of the probe's node",
-   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Section 3.1 (the plane wall)",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
    "tolerance_pct": 1,
-   "tolerance_reason": "As for x = 25."
+   "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   },
   {
    "id": "heat_flow_w",
    "label": "Heat flow into the hot end",
    "unit": "W",
    "formula": "k A (T_hot - T_cold) / L",
-   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Section 3.1 (the plane wall, Fourier's law)",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
    "tolerance_pct": 1,
-   "tolerance_reason": "The heat flow of an exact linear field; 1 % leaves room for the nodal summation only."
+   "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   }
  ]
 }
