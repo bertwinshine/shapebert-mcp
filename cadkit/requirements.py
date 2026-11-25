@@ -18,12 +18,15 @@ KINDS = {
     "hole_diameter": ("mm", "faces"),
     "pitch_circle_diameter": ("mm", "faces"),
     "hole_spacing": ("mm", "faces"),
+    "edge_distance": ("mm", "faces"),
     "thickness": ("mm", "faces"),
     "volume": ("mm3", "object"),
     "mass": ("kg", "object"),
     "feature": (None, "faces or edges"),
 }
-COMMON_KEYS = {"id", "kind", "target", "value", "unit", "op", "tolerance", "source_quote"}
+COMMON_KEYS = {"id", "kind", "target", "value", "unit", "op", "tolerance", "source_quote", "source"}
+# A limit from a design rule rather than from the request names that rule.
+RULE_SOURCES = ("knowledge", "calc")
 EXTRA_KEYS = {"size": {"axis"}, "mass": {"density_kg_m3"}}
 AXES = ("X", "Y", "Z")
 # eq: the value within the tolerance; min / max: a limit the measured value may reach.
@@ -53,6 +56,29 @@ def quote(value, where):
     if any(ord(c) < 32 for c in value):
         raise RequirementError(f"{where}: source_quote contains control characters")
     return value.strip()
+
+
+def _origin(check, where):
+    if ("source_quote" in check) == ("source" in check):
+        raise RequirementError(
+            f"{where}: give source_quote (the request's own words) or source (the knowledge rule "
+            "or calculator a limit comes from), exactly one of them"
+        )
+    if "source_quote" in check:
+        return {"source_quote": quote(check["source_quote"], where)}
+    source = check["source"]
+    if not isinstance(source, dict) or source.get("type") not in RULE_SOURCES:
+        raise RequirementError(
+            f"{where}: source must be a {' or '.join(RULE_SOURCES)} source; "
+            "a value from the request uses source_quote"
+        )
+    # provenance imports this module, so it can only be imported once this one is loaded.
+    from cadkit import provenance
+
+    try:
+        return {"source": provenance.check_source(source, f"{where}: source")}
+    except provenance.SourceError as e:
+        raise RequirementError(str(e)) from None
 
 
 def _target(kind, target, where):
@@ -134,7 +160,7 @@ def check_one(check, index):
         out["axis"] = axis
     if kind == "mass":
         out["density_kg_m3"] = _positive(check.get("density_kg_m3"), f"{where}: density_kg_m3")
-    out["source_quote"] = quote(check.get("source_quote"), where)
+    out.update(_origin(check, where))
     return out
 
 

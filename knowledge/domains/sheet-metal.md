@@ -81,6 +81,10 @@ Tell the user that measured test-bend K and shop tooling override these tables.
 - Min flange length >= 4*t (or 0.77*V-die; conservative 4*t + R).
 - Holes: dia >= t (punched; stainless >= 2*t); hole-edge to part-edge >= 1.5*t;
   hole to hole >= 2*t; hole-edge to bend >= 2*t from tangent (or 2.5*t + R from bend line).
+  These set the material left between hole edges by sheet THICKNESS, because punching
+  and bending distort thin sheet; they replace the general hole rules (conventions.md)
+  for sheet parts. Source: common fabricator design guidance, no standard. As a centre
+  distance for a check: edge_distance = 1.5*t + d0/2, hole_spacing = 2*t + d0.
 - Bend relief: width >= t, depth >= R + t (or 1.5*t). Corner reliefs at box corners.
 - Notch width >= t (>= 1 mm), tab width >= 2*t (>= 3.2 mm); cutout inside corners >= 0.5*t.
 - Hems: open-hem return >= 4*t (some shops 6*t); avoid closed flat hems in hard tempers.

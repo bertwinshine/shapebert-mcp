@@ -19,12 +19,15 @@ Hole diameter for a bolt passing THROUGH:
 - Only if they decline to choose, use M4 for a general bracket and say so.
 
 ## Spacing and material rules (keep parts manufacturable)
-- Edge distance: a hole centre must be at least 2 x hole diameter from any edge.
-  (Plates and brackets. Bolted circular flanges: see fasteners-fits.md, ~1.1-1.5 x d.)
-- Between two holes: at least 1 x hole diameter of solid material between their edges.
+- Edge distance (hole centre to the nearest outer edge) and hole pitch (centre to
+  centre): take both minimums from `calc_fasteners` (`bolt_hole`, or `edge_distance`
+  for any hole diameter). They are defined once, in ShapeBert's hole rules: rule
+  `machined` (ShapeBert default) for plates, brackets and custom flanges,
+  `steel_structure` (EN 1993-1-8) for bolted structural steelwork. Never write these
+  numbers yourself. Sheet metal uses its own rule (domains/sheet-metal.md).
 - Between a hole and another feature (e.g. a boss): at least 1.5 mm of material.
 - If the requested holes do NOT fit these rules on the given part, SAY SO and suggest
-  a smaller hole or a bigger part - do not silently overlap material.
+  a smaller hole or a bigger part - do not silently overlap material or move them.
 
 ## Fillets and chamfers
 - "Rounded edges" with no size -> use a 1 mm fillet and report it.

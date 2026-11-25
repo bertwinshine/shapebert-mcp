@@ -784,6 +784,31 @@ def _spacing(found):
     return [min((p - q).Length for j, q in enumerate(points) if j != i) for i, p in enumerate(points)]
 
 
+def _edge_distances(sel, shape, found):
+    """Each hole's axis to the outer boundary of the part, in the section through the
+    middle of the hole. The largest closed section loop around the axis is the outer
+    one; the hole's own loop and inner cut-outs are smaller."""
+    import Part
+
+    values = []
+    for h in found:
+        axis, point = h["axis"], h["axis_point"]
+        middle = shape.getElement(h["faces"][0]).CenterOfMass
+        centre = point + axis * (middle - point).dot(axis)
+        around = []
+        for wire in shape.slice(axis, centre.dot(axis)):
+            if not wire.isClosed():
+                continue
+            loop = Part.Face(wire)
+            if loop.isInside(centre, sel.LIN_TOL_MM, True):
+                around.append((loop.Area, wire))
+        if not around:
+            raise RuntimeError(f"no closed outline around the hole {h['faces']}")
+        outer = max(around, key=lambda a: a[0])[1]
+        values.append(Part.Vertex(centre).distToShape(outer)[0])
+    return values
+
+
 def _thickness(sel, shape, target):
     """Distance from each target face to the nearest flat face behind it, facing the other way."""
     values, used = [], []
@@ -840,6 +865,8 @@ def _measure_check(sel, obj, check):
         return _pcd(found), used
     if kind == "hole_spacing":
         return _spacing(found), used
+    if kind == "edge_distance":
+        return _edge_distances(sel, shape, found), used
     raise ValueError(f"unknown kind {kind!r}")
 
 
@@ -893,7 +920,8 @@ def _shown(check, values):
 
 
 def _verify_row(sel, obj, check):
-    row = {k: check.get(k) for k in ("id", "kind", "target", "axis", "source_quote") if k in check}
+    keys = ("id", "kind", "target", "axis", "source_quote", "source")
+    row = {k: check.get(k) for k in keys if k in check}
     if check.get("kind") == "feature":
         row["required"] = "present"
     else:

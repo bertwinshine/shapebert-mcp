@@ -154,9 +154,23 @@ values", follow conventions.md / the domain defaults and report every value chos
    thick", "chamfer the top edges"). Limits are checks with `op`: "at least 3 mm wall"
    is a thickness with op "min", "under 2 kg" a mass with op "max"; "eq" (the default)
    is for an exact value. Values you chose yourself (defaults, calculator results)
-   are not requirements; report those as before. Then `verify_requirements`.
-   On any fail, fix the part and verify again. Never report a part as done while a
-   check fails or a requested feature is listed as missing. If a request item has no
+   are not requirements; report those as before.
+   Hole rules: when the part has bolt or mounting holes, add two more checks per hole
+   size, each with op "min" and `source` (the rule) in place of `source_quote`:
+   `edge_distance` (hole centre to the nearest outer edge) = `min_edge_distance_mm`
+   and `hole_spacing` (hole pitch, centre to centre) = `min_hole_to_hole_mm`, both from
+   `calc_fasteners` (`bolt_hole`, or `edge_distance` for a hole that takes no metric
+   bolt), with `{"type": "calc", "tool": "calc_fasteners", "calc": ..., "inputs": ...}`.
+   Rule `machined` unless the part is bolted structural steelwork (`steel_structure`).
+   Leave out `hole_spacing` for a single hole, and both for a standard pipe flange from
+   `calc_flanges`, whose standard sets the hole positions; say which you left out.
+   Sheet metal: the values from domains/sheet-metal.md, with a "knowledge" source.
+   Then `verify_requirements`.
+   On any fail, fix the part and verify again. When a hole rule check fails because of
+   sizes the user gave, don't move the holes: report the failing check with measured vs
+   required, and suggest a fix (bigger part, smaller bolt, other hole position). Never
+   report a part as done while a check fails or a requested feature is listed as
+   missing. If a request item has no
    check kind, or a check comes back `not_measured`, say plainly which ones were not
    measured and why.
 1. `check_geometry` on the final object - fix every issue before claiming success.
@@ -169,8 +183,8 @@ values", follow conventions.md / the domain defaults and report every value chos
    matches what the user described.
 4. Domain checks: boats -> `hydrostatics` with the loaded mass (and kg_mm for GM);
    printed parts -> `check_printability`; gears/welds/shafts -> calculator checks.
-5. Report: the requirement table from `verify_requirements` (check, request quote,
-   op, required, measured, pass/fail), then the parameter table from `explain_params`
+5. Report: the requirement table from `verify_requirements` (check, request quote or
+   rule source, op, required, measured, pass/fail), then the parameter table from `explain_params`
    (parameter, value, unit, source, detail), the final volume or mass, the other checks
    passed/failed, and what still needs a human or certified check. End the reply with
    the assumptions: every parameter `explain_params` lists under assumptions, by name

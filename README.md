@@ -69,7 +69,7 @@ shape.
 
 `set_requirements` stores the numbers and features of the request as checks on the
 part, each with the request's own words: overall size, hole count, hole diameter,
-pitch circle, hole spacing, thickness, volume or mass, and features that have to be
+pitch circle, hole spacing, edge distance, thickness, volume or mass, and features that have to be
 there (a fillet, a chamfer). They are saved with the document. `verify_requirements`
 measures them on the current shape and lists each check as pass or fail with the
 measured and required values, so "6 x M10 holes on PCD 100" is checked again after
@@ -77,7 +77,15 @@ every change instead of trusted. A check can also be a limit: `op` `"min"` for "
 least 3 mm wall", `"max"` for "under 2 kg" (the default `"eq"` takes a tolerance).
 When no hole has the asked-for diameter, the check fails with the nearest hole sizes
 measured (an M10 clearance hole drilled at 10.5 instead of 11 shows 10.5), not just
-"not found". Sizes are measured on the exact surfaces, not on the display mesh, which
+"not found". `edge_distance` measures each hole's centre to the nearest outer edge
+of the part. Hole edge distance and hole pitch also get checks that come from a rule
+instead of the request: their minimums are defined once, in `cadkit/hole_rules.py`
+(rule `machined`, ShapeBert's default of 2 x the hole diameter; rule
+`steel_structure`, EN 1993-1-8 Table 3.3: edge 1.2 x d0, pitch 2.2 x d0 along the load
+and 2.4 x d0 across it, not yet checked against the standard text). `calc_fasteners`
+returns them, and such a check names that calculation as its `source` instead of a
+quote, so a hole too close to the edge shows up in `verify_requirements` with measured
+and required values. Sizes are measured on the exact surfaces, not on the display mesh, which
 cuts inside arcs. The selector `inclined planar faces` finds chamfers, but on a part
 built at an angle it also matches flat faces that are not chamfers.
 `create_document` and `open_document` start or reopen a part without free-form code.

@@ -68,4 +68,9 @@ result = {"valid": part.Shape.isValid(), "volume_mm3": round(part.Shape.Volume, 
 **To change the part later:** set `NHoles` to 8 and recompute: the array adds the holes
 evenly. The same pattern works for any repeated feature (slots, ribs, spokes).
 
+**Edge distance:** this prompt leaves 17.5 mm from hole centre to rim, less than the
+`machined` minimum `calc_fasteners bolt_hole(size="M12")` gives, so the `edge_distance`
+check fails. The sizes are the user's: build them, keep the failing check in the report
+and tell the user (a larger outside diameter or a smaller pitch circle would fix it).
+
 **Verified by:** author (live FreeCAD test, Nov 2026)
