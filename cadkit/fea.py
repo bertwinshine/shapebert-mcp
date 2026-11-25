@@ -109,6 +109,258 @@ def material(name: str) -> dict:
     return {"name": key, **MATERIALS[key]}
 
 
+DEFAULT_INITIAL_TEMPERATURE_C = 20.0
+# Tetrahedra that FreeCAD writes for CalculiX: type -> (order, description).
+ELEMENT_TYPES = {"C3D4": (1, "4-node linear tetrahedra"), "C3D10": (2, "10-node quadratic tetrahedra")}
+# Peak stress this many mesh sizes or closer to a fixed face or a sharp inside edge
+# is treated as a singularity: it keeps growing as the mesh is refined.
+SINGULARITY_BAND_MESH_SIZES = 2
+CONVERGED_PCT = 2.0
+REFINE_FACTOR = 1.5
+CONVERGENCE_MESHES = 3
+# Material values each analysis type uses; yield only feeds the safety factor.
+USED_VALUES = {
+    "static": ("E_mpa", "nu", "yield_mpa"),
+    "modal": ("E_mpa", "nu", "density_kg_m3"),
+    "buckling": ("E_mpa", "nu"),
+    "thermal_steady": ("k_w_mk",),
+    "thermal_transient": ("k_w_mk", "density_kg_m3", "cp_j_kgk"),
+    "thermomechanical": ("E_mpa", "nu", "alpha_1_k", "k_w_mk", "yield_mpa"),
+}
+VALUE_UNITS = {
+    "E_mpa": "MPa",
+    "nu": "-",
+    "density_kg_m3": "kg/m^3",
+    "yield_mpa": "MPa",
+    "k_w_mk": "W/(m K)",
+    "cp_j_kgk": "J/(kg K)",
+    "alpha_1_k": "1/K",
+}
+THERMAL_VALUES = {"k_w_mk", "cp_j_kgk", "alpha_1_k"}
+RESULT_UNITS = {
+    "static": {"length": "mm", "force": "N", "stress": "MPa"},
+    "modal": {"length": "mm", "frequency": "Hz", "mass": "kg"},
+    "buckling": {"length": "mm", "force": "N"},
+    "thermal_steady": {"length": "mm", "temperature": "°C", "heat_flow": "W"},
+    "thermal_transient": {"length": "mm", "temperature": "°C", "heat_flow": "W", "time": "s"},
+    "thermomechanical": {"length": "mm", "force": "N", "stress": "MPa", "temperature": "°C"},
+}
+
+
+def material_values(mat: dict, analysis_type: str) -> dict:
+    """The material values an analysis type uses, each with its unit and source."""
+    out = {}
+    for key in USED_VALUES[analysis_type]:
+        where = f"ShapeBert FEA material table (cadkit/fea.py), {mat['name']}: {mat['grade']}"
+        if key in THERMAL_VALUES and mat.get("thermal_values") == "typical":
+            where += "; typical value, not from a datasheet"
+        out[key] = {
+            "value": mat[key],
+            "unit": VALUE_UNITS[key],
+            "source": {"type": "default", "where": where},
+        }
+    return out
+
+
+def convergence_summary(runs: list[dict], current_mesh_mm: float | None) -> dict:
+    """Change of the key result from mesh to mesh, and whether the last change is small enough."""
+    values = [r["value"] for r in runs]
+    changes = [
+        None if a == 0 else abs(b - a) / abs(a) * 100 for a, b in zip(values, values[1:], strict=False)
+    ]
+    return {
+        "quantity": runs[-1]["quantity"],
+        "runs": runs,
+        "change_pct": [None if c is None else round(c, 3) for c in changes],
+        "limit_pct": CONVERGED_PCT,
+        "converged": changes[-1] is not None and changes[-1] < CONVERGED_PCT,
+        # Both sizes come from fea_run with the same rounding.
+        "applies_to_this_mesh": runs[-1]["mesh_size_mm"] == current_mesh_mm,
+    }
+
+
+def _support_rows(setup: dict) -> list[dict]:
+    rows = []
+    for kind in ("fixed_faces", "sliding_faces"):
+        for face in setup.get(kind, []):
+            rows.append({"kind": kind.split("_")[0], **face})
+    return rows
+
+
+def _load_rows(setup: dict) -> list[dict]:
+    rows = []
+    for load in setup.get("loads", []):
+        row = {"type": load["type"], "faces": load["face_info"]}
+        if load["type"] == "force":
+            row.update(value_n=load["value_n"], direction=load["direction"])
+        else:
+            row["value_mpa"] = load["value_mpa"]
+        rows.append(row)
+    return rows
+
+
+def _warning(code: str, message: str) -> dict:
+    return {"code": code, "message": message}
+
+
+def _element_warnings(element_type: str | None) -> list[dict]:
+    order = ELEMENT_TYPES.get(element_type or "", (None,))[0]
+    if order == 1:
+        return [
+            _warning(
+                "first_order_elements",
+                f"{element_type} elements are first order: too stiff in bending, so stress and "
+                "deflection come out low. Use second-order (C3D10) elements, the default.",
+            )
+        ]
+    if order is None:
+        return [_warning("unknown_element_type", f"element type {element_type!r} is not a known tetrahedron")]
+    return []
+
+
+def _convergence_warnings(conv: dict | None, mesh_mm) -> list[dict]:
+    if conv is None:
+        return [
+            _warning(
+                "convergence_not_checked",
+                "Mesh convergence not checked: run fea_convergence before calling this result final.",
+            )
+        ]
+    if not conv["applies_to_this_mesh"]:
+        finest = conv["runs"][-1]["mesh_size_mm"]
+        return [
+            _warning(
+                "convergence_not_checked",
+                f"The convergence check was made for a {finest} mm mesh, this result is from "
+                f"{mesh_mm} mm: run fea_convergence again.",
+            )
+        ]
+    if not conv["converged"]:
+        return [
+            _warning(
+                "mesh_not_converged",
+                f"{conv['quantity']} changed {conv['change_pct'][-1]} % between the last two meshes "
+                f"(limit {CONVERGED_PCT} %): use a smaller mesh_size_mm and check again.",
+            )
+        ]
+    return []
+
+
+def _singularity_warnings(peak: dict | None, probes: list[dict]) -> list[dict]:
+    out = []
+    near = (peak or {}).get("near")
+    if near:
+        away = peak.get("away")
+        tail = (
+            f" Away from those spots the peak is {away['max_von_mises_mpa']} MPa at {away['at_mm']} mm."
+            if away
+            else " No node lies outside that band, so the mesh is too coarse to say more."
+        )
+        out.append(
+            _warning(
+                "stress_at_singularity",
+                f"The peak von Mises stress ({peak['max_von_mises_mpa']} MPa) is {near['distance_mm']} mm "
+                f"from a {near['kind']}, within {peak['band_mm']} mm: a mesh singularity that grows as the "
+                f"mesh is refined, not a real stress. Do not report it as the result.{tail}",
+            )
+        )
+    for i, probe in enumerate(probes, 1):
+        spot = probe.get("near_singularity")
+        if spot:
+            out.append(
+                _warning(
+                    "probe_at_singularity",
+                    f"Probe {i} reads a node {spot['distance_mm']} mm from a {spot['kind']}: its stress "
+                    "is not a real value there.",
+                )
+            )
+    return out
+
+
+def _defaults_warning(values: dict, setup: dict, analysis_type: str) -> list[dict]:
+    named = [f"{key} {v['value']} {v['unit']}" for key, v in values.items()]
+    text = f"material values from ShapeBert's table, not given by the user: {', '.join(named)}"
+    if "initial_temperature_c" in setup.get("defaults", []) and analysis_type in (
+        "thermomechanical",
+        "thermal_transient",
+    ):
+        text += f"; initial (stress-free) temperature {DEFAULT_INITIAL_TEMPERATURE_C} °C"
+    return [_warning("defaults_used", f"Defaults used: {text}. Report them as assumptions.")]
+
+
+def assumptions(analysis_type: str, record: dict) -> dict:
+    """The modelling assumptions behind one result, with warnings about its limits.
+
+    `record` is what fea_results reads from the analysis in FreeCAD: setup, run,
+    ccx, convergence runs, peak stress location and probes."""
+    setup, run = record.get("setup"), record.get("run")
+    if setup is None or run is None:
+        return {
+            "analysis_type": analysis_type,
+            "warnings": [
+                _warning(
+                    "record_missing",
+                    "This analysis has no setup or run record (made by an older ShapeBert, or not "
+                    "solved yet): run fea_setup and fea_run again for the full assumptions.",
+                )
+            ],
+        }
+    mesh_mm = run["mesh_size_mm"]
+    order, description = ELEMENT_TYPES.get(run["element_type"], (None, "unknown"))
+    values = material_values(setup["material"], analysis_type)
+    conv_runs = record.get("convergence")
+    conv = convergence_summary(conv_runs, mesh_mm) if conv_runs else None
+    ccx = record.get("ccx") or {}
+    block = {
+        "analysis_type": analysis_type,
+        "elements": {"type": run["element_type"], "order": order, "description": description},
+        "mesh": {
+            "max_element_size_mm": mesh_mm,
+            "nodes": run["nodes"],
+            "elements": run["elements"],
+            "mesher": run["mesher"],
+        },
+        "material": {
+            "name": setup["material"]["name"],
+            "grade": setup["material"]["grade"],
+            "values": values,
+        },
+        "supports": _support_rows(setup),
+        "loads": _load_rows(setup),
+        "temperatures": [
+            {"temperature_c": t["temperature_c"], "faces": t["face_info"]}
+            for t in setup.get("temperatures", [])
+        ],
+        "units": RESULT_UNITS[analysis_type],
+        "solver": {
+            "name": "CalculiX",
+            "version": ccx.get("version", "unknown"),
+            "threads": ccx.get("threads"),
+            "mesh_s": run["mesh_s"],
+            "solve_s": run["solve_s"],
+        },
+        "convergence": conv,
+    }
+    if setup.get("initial_temperature_c") is not None:
+        source = (
+            {"type": "default", "where": "fea_setup default when no initial_temperature_c is given"}
+            if "initial_temperature_c" in setup.get("defaults", [])
+            else {"type": "input", "where": "initial_temperature_c given to fea_setup"}
+        )
+        block["initial_temperature_c"] = {"value": setup["initial_temperature_c"], "source": source}
+    if analysis_type in ("modal", "buckling"):
+        block["modes"] = setup.get("modes")
+    if analysis_type == "thermal_transient":
+        block["time"] = {"end_s": setup.get("time_end_s"), "step_s": setup.get("time_step_s")}
+    block["warnings"] = (
+        _element_warnings(run["element_type"])
+        + _singularity_warnings(record.get("peak_stress"), record.get("probes") or [])
+        + _convergence_warnings(conv, mesh_mm)
+        + _defaults_warning(values, setup, analysis_type)
+    )
+    return block
+
+
 def _faces(faces, what: str) -> list[str]:
     """Face names like 'Face1' or face selectors like 'top', in canonical form."""
     if not isinstance(faces, list) or not faces:

@@ -3,6 +3,9 @@
 server.py appends this file to fc_tools.py and uses its helpers (_doc, _obj, _has_shape).
 """
 
+import json
+import time
+
 FEA_ELEMENT_ORDER = "2nd"
 # CalculiX writes these next to the .inp; any left from an earlier run would be read
 # back as this run's results if ccx stopped before overwriting them.
@@ -217,8 +220,11 @@ def fea_setup(
     time_step_s=None,
     *,
     max_elements,
+    defaults=(),
 ):
-    """Build (or replace) a CalculiX analysis of one part."""
+    """Build (or replace) a CalculiX analysis of one part.
+
+    `defaults` names the inputs the caller filled in because the user gave none."""
     import ObjectsFem
 
     doc = _doc()
@@ -274,10 +280,10 @@ def fea_setup(
             if (con.DirectionVector - want).Length > 1e-6:
                 raise RuntimeError(f"{con.Name} points along {con.DirectionVector}, not {want}")
 
-    return {
+    reply = {
         "analysis": name,
         "analysis_type": analysis_type,
-        "modes": modes if analysis_type == "modal" else None,
+        "modes": modes if analysis_type in ("modal", "buckling") else None,
         "replaced_old_analysis": old is not None,
         "part": obj.Name,
         "fixed_faces": fixed_info,
@@ -290,6 +296,21 @@ def fea_setup(
         "mesh_size_mm": mesh_size_mm,
         "element_order": "2nd order (10-node tetrahedra)",
     }
+    _store(analysis, "ShapeBertSetup", {**reply, "material": material, "defaults": list(defaults)})
+    return reply
+
+
+def _store(obj, prop, value):
+    """Keep `value` as JSON on `obj`, so later calls (and a reopened file) can read it."""
+    if prop not in obj.PropertiesList:
+        obj.addProperty("App::PropertyString", prop, "ShapeBert", "ShapeBert record (JSON)")
+    setattr(obj, prop, json.dumps(value))
+
+
+def _stored(obj, prop):
+    if prop not in obj.PropertiesList or not getattr(obj, prop):
+        return None
+    return json.loads(getattr(obj, prop))
 
 
 def _check_element_count(volume_mm3, mesh_size_mm, max_elements):
@@ -369,33 +390,55 @@ def fea_run(name, work_dir, threads=1):
     Multithreaded CalculiX builds (SPOOLES with threads) are unreliable: on CI the same
     buckling input gave 0.96, 8.4 and 1728 run to run, and static runs failed the
     equilibrium check now and then. One thread is the default for that reason."""
-    import time
-
-    from femmesh.gmshtools import GmshTools
-    from femtools import ccxtools
-
     started = time.time()
-    doc = _doc()
     analysis = _fea_analysis(name)
-    solvers = _members(analysis, base="Fem::FemSolverObjectPython")
-    meshes = _members(analysis, base="Fem::FemMeshObject")
-    meshes = [m for m in meshes if m.Name == f"{name}_Mesh"]
-    if not solvers or not meshes:
-        raise RuntimeError(f"{name} has no solver or mesh. Run fea_setup again.")
-    mesh = meshes[0]
+    solver, mesh = _solver_and_mesh(analysis, name)
     ccx = _find_program(["ccx.exe", "ccx"], FEM_PARAMS + "/Ccx", "ccxBinaryPath")
     if not ccx:
         raise RuntimeError("CalculiX (ccx) was not found. Run doctor for the install steps.")
+    gmsh = _make_mesh(mesh)
+    meshed = time.time()
+    inp_file, ccx_info = _solve(analysis, solver, ccx, work_dir, threads)
+    record = {
+        "element_type": _element_type(inp_file),
+        "nodes": mesh.FemMesh.NodeCount,
+        "elements": mesh.FemMesh.VolumeCount,
+        "mesh_size_mm": _r(mesh.CharacteristicLengthMax.Value, 3),
+        "mesher": f"Gmsh {_program_version(gmsh)}",
+        "mesh_s": _r(meshed - started, 1),
+        "solve_s": _r(time.time() - meshed, 1),
+    }
+    _store(analysis, "ShapeBertRun", record)
+    return {"analysis": name, **record, "element_order": "2nd order (10-node tetrahedra)", "ccx": ccx_info}
 
-    GmshTools(mesh).create_mesh()
-    doc.recompute()
+
+def _solver_and_mesh(analysis, name):
+    solvers = _members(analysis, base="Fem::FemSolverObjectPython")
+    meshes = [m for m in _members(analysis, base="Fem::FemMeshObject") if m.Name == f"{name}_Mesh"]
+    if not solvers or not meshes:
+        raise RuntimeError(f"{name} has no solver or mesh. Run fea_setup again.")
+    return solvers[0], meshes[0]
+
+
+def _make_mesh(mesh):
+    """Mesh with Gmsh; returns the Gmsh program that did it."""
+    from femmesh.gmshtools import GmshTools
+
+    tools = GmshTools(mesh)
+    tools.create_mesh()
+    _doc().recompute()
     if mesh.FemMesh.VolumeCount == 0:
         raise RuntimeError("Gmsh made no volume mesh. Try a larger or smaller mesh_size_mm.")
-    meshed = time.time()
+    return tools.gmsh_bin
+
+
+def _solve(analysis, solver, ccx, work_dir, threads):
+    """Write the CalculiX input, run it and load the results; returns (inp file, ccx info)."""
+    from femtools import ccxtools
 
     # ccx_run() and run() open a modal dialog on errors when the GUI is up, which
     # would hang the listener, so drive the steps one by one.
-    fea = ccxtools.FemToolsCcx(analysis, solvers[0])
+    fea = ccxtools.FemToolsCcx(analysis, solver)
     fea.update_objects()
     fea.setup_working_dir(work_dir)
     problems = fea.check_prerequisites()
@@ -411,13 +454,12 @@ def fea_run(name, work_dir, threads=1):
     fea.setup_ccx(ccx_binary=ccx)
     if not fea.ccx_binary_present:
         raise RuntimeError(f"{ccx} did not answer like CalculiX. Run doctor.")
-    analysis_type = solvers[0].AnalysisType
     solve_started = time.time()
     code, stdout, stderr = _run_ccx(ccx, fea.inp_file_name, threads)
-    problem = _solver_problem(base, code, solve_started, stdout, analysis_type)
+    problem = _solver_problem(base, code, solve_started, stdout, solver.AnalysisType)
     if problem:
         raise _solver_failure(base, problem, stdout, stderr)
-    ccx_info = _record_ccx(solvers[0], ccx, stdout, threads)
+    ccx_info = _record_ccx(solver, ccx, stdout, threads)
     try:
         fea.load_results()
     except ValueError as exc:
@@ -429,16 +471,87 @@ def fea_run(name, work_dir, threads=1):
         fea.load_results_ccxdat()
     if not _members(analysis, base="Fem::FemResultObject"):
         raise RuntimeError("CalculiX ran but no results were loaded.")
-    return {
-        "analysis": name,
-        "nodes": mesh.FemMesh.NodeCount,
-        "elements": mesh.FemMesh.VolumeCount,
-        "mesh_size_mm": _r(mesh.CharacteristicLengthMax.Value, 3),
-        "element_order": "2nd order (10-node tetrahedra)",
-        "mesh_s": _r(meshed - started, 1),
-        "solve_s": _r(time.time() - meshed, 1),
-        "ccx": ccx_info,
-    }
+    return fea.inp_file_name, ccx_info
+
+
+ELEMENT_LINE = re.compile(r"^\*ELEMENT\s*,\s*TYPE\s*=\s*(\w+)", re.I | re.M)
+
+
+def _element_type(inp_file):
+    """The volume element type in the CalculiX input, e.g. C3D10."""
+    found = sorted(set(ELEMENT_LINE.findall(_read(inp_file))))
+    return "+".join(found) if found else "unknown"
+
+
+def _program_version(binary):
+    import subprocess
+
+    if not binary:
+        return "unknown"
+    try:
+        proc = subprocess.run(
+            [binary, "--version"], capture_output=True, text=True, errors="replace", timeout=30, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+    words = (proc.stdout + proc.stderr).split()
+    return words[0] if words else "unknown"
+
+
+def fea_convergence(name, work_dir, threads=1, factor=1.5, meshes=3):
+    """Solve at `meshes` mesh sizes, each `factor` times finer, ending at the setup's size.
+
+    The results of the finest (the setup's) mesh stay loaded. If a run fails, all
+    results are removed, so none from a coarser mesh can pass for the setup's."""
+    from femresult.resulttools import purge_results
+
+    analysis = _fea_analysis(name)
+    _, mesh = _solver_and_mesh(analysis, name)
+    finest = mesh.CharacteristicLengthMax.Value
+    _store(analysis, "ShapeBertConvergence", None)
+    runs, finished = [], False
+    try:
+        for k in range(meshes - 1, -1, -1):
+            mesh.CharacteristicLengthMax = f"{finest * factor**k} mm"
+            run = fea_run(name, work_dir, threads)
+            quantity, value = _key_result(analysis)
+            runs.append(
+                {
+                    "mesh_size_mm": run["mesh_size_mm"],
+                    "nodes": run["nodes"],
+                    "elements": run["elements"],
+                    "quantity": quantity,
+                    "value": value,
+                    "solve_s": run["solve_s"],
+                }
+            )
+        finished = True
+    finally:
+        mesh.CharacteristicLengthMax = f"{finest} mm"
+        if not finished:
+            purge_results(analysis)
+    _store(analysis, "ShapeBertConvergence", runs)
+    return {"analysis": name, "runs": runs}
+
+
+def _key_result(analysis):
+    """(name, unrounded value) of the result fea_convergence follows."""
+    solver = _members(analysis, base="Fem::FemSolverObjectPython")[0]
+    results = _members(analysis, base="Fem::FemResultObject")
+    if solver.AnalysisType == "frequency":
+        return "first_frequency_hz", min(r.EigenmodeFrequency for r in results)
+    if solver.AnalysisType == "buckling":
+        positive = [f for f in _buckling_factors(analysis) if f > 0]
+        if not positive:
+            raise RuntimeError("CalculiX found no positive buckling factor")
+        return "lowest_load_factor", min(positive)
+    if solver.AnalysisType == "thermomech" and solver.ThermoMechType == "pure heat transfer":
+        flows = _raw_heat_flows(analysis)
+        if not flows:
+            raise RuntimeError("CalculiX printed no heat flows")
+        return "largest_heat_flow_w", max(abs(q) for q in flows.values())
+    last = max(results, key=lambda r: r.Time)
+    return "max_displacement_mm", max(last.DisplacementLengths)
 
 
 def _run_ccx(ccx, inp_file, threads):
@@ -542,12 +655,15 @@ def _mesh_size(analysis):
     return _r(_members(analysis, base="Fem::FemMeshObject")[0].CharacteristicLengthMax.Value, 3)
 
 
-def _heat_flows(analysis):
-    """Heat flow in W into the part at each fixed temperature (CalculiX prints mW)."""
+def _raw_heat_flows(analysis):
+    """Heat flow in W into the part per temperature set (CalculiX prints mW)."""
     texts = _members(analysis, type_id="App::TextDocument")
-    flows = {
-        m.group(1): float(m.group(2)) / 1000 for m in HEAT_LINE.finditer(texts[-1].Text if texts else "")
-    }
+    return {m.group(1): float(m.group(2)) / 1000 for m in HEAT_LINE.finditer(texts[-1].Text if texts else "")}
+
+
+def _heat_flows(analysis):
+    """Heat flow in W into the part at each fixed temperature."""
+    flows = _raw_heat_flows(analysis)
     rows = []
     for con in _members(analysis, type_id="Fem::ConstraintTemperature"):
         flow = flows.get(con.Name.upper())  # CalculiX prints set names in capitals
@@ -648,12 +764,16 @@ BUCKLING_TABLE = re.compile(r"B U C K L I N G\s+F A C T O R\s+O U T P U T(.*?)(?
 BUCKLING_ROW = re.compile(r"^\s*(\d+)\s+([-+0-9.Ee]+)\s*$", re.M)
 
 
-def _buckling_results(analysis, res, mat):
+def _buckling_factors(analysis):
     texts = _members(analysis, type_id="App::TextDocument")
     table = BUCKLING_TABLE.search(texts[-1].Text if texts else "")
     if table is None:
         raise RuntimeError("CalculiX printed no buckling factors")
-    factors = [float(m.group(2)) for m in BUCKLING_ROW.finditer(table.group(1))]
+    return [float(m.group(2)) for m in BUCKLING_ROW.finditer(table.group(1))]
+
+
+def _buckling_results(analysis, res, mat):
+    factors = _buckling_factors(analysis)
     applied = _applied_loads(analysis)
     rows = [{"mode": i, "load_factor": _r(f, 3)} for i, f in enumerate(factors, 1)]
     if applied is not None:
@@ -684,9 +804,81 @@ def _history(results, point):
     return [[_r(r.Time, 3), _r(r.Temperature[i] - 273.15, 3)] for r in results]
 
 
-def fea_results(name, probes=None):
-    """Summary of a solved analysis, plus values at the nodes nearest to `probes`."""
+def fea_results(name, probes=None, band_mesh_sizes=2):
+    """Summary of a solved analysis, values at the nodes nearest to `probes`, and the
+    `record` (setup, run, convergence, peak stress) behind its assumptions."""
     analysis = _fea_analysis(name)
+    out = _summary(analysis, name, probes)
+    record = {
+        "setup": _stored(analysis, "ShapeBertSetup"),
+        "run": _stored(analysis, "ShapeBertRun"),
+        "convergence": _stored(analysis, "ShapeBertConvergence"),
+        "ccx": out["ccx"],
+    }
+    if out["analysis_type"] in ("static", "thermomechanical"):
+        record["peak_stress"] = _check_singularities(analysis, out, band_mesh_sizes * _mesh_size(analysis))
+    out["record"] = record
+    return out
+
+
+# Nodes checked, highest stress first, for the peak away from singular spots.
+MAX_SPOT_CHECKS = 20000
+
+
+def _check_singularities(analysis, out, band):
+    """Is the peak stress next to a fixed face or sharp inside edge? Adds the peak away
+    from them to `out` and flags probes that read a node next to one."""
+    res = max(_members(analysis, base="Fem::FemResultObject"), key=lambda r: r.Time)
+    spots = _singular_spots(analysis)
+    nodes, numbers = res.Mesh.FemMesh.Nodes, list(res.NodeNumbers)
+    vm = list(res.vonMises)
+    order = sorted(range(len(vm)), key=vm.__getitem__, reverse=True)
+    peak = {"max_von_mises_mpa": _r(vm[order[0]], 2), "band_mm": _r(band, 3), "near": None, "away": None}
+    for n, i in enumerate(order[:MAX_SPOT_CHECKS]):
+        spot = _nearest_spot(spots, nodes[numbers[i]])
+        if spot is None or spot["distance_mm"] > band:
+            peak["away"] = {"max_von_mises_mpa": _r(vm[i], 2), "at_mm": _vec(nodes[numbers[i]])}
+            break
+        if n == 0:
+            peak["near"] = spot
+    if peak["away"]:
+        away = peak["away"]["max_von_mises_mpa"]
+        out["max_von_mises_away_from_singularities_mpa"] = away
+        out["max_von_mises_away_from_singularities_at_mm"] = peak["away"]["at_mm"]
+        out["safety_factor_away_from_singularities"] = _r(out["yield_mpa"] / away, 2) if away > 0 else None
+    for row in out.get("probes", []):
+        spot = _nearest_spot(spots, App.Vector(*row["node_at_mm"]))
+        if spot and spot["distance_mm"] <= band:
+            row["near_singularity"] = spot
+    return peak
+
+
+def _singular_spots(analysis):
+    """Where linear-elastic stress has no finite limit: fixed faces and sharp inside edges."""
+    part = _members(analysis, base="Fem::FemMeshObject")[0].Shape
+    spots = [
+        ("fixed face", obj.Shape.getElement(sub))
+        for con in _members(analysis, type_id="Fem::ConstraintFixed")
+        for obj, subs in con.References
+        for sub in subs
+    ]
+    sel = _selectors()
+    try:
+        edges = sel.resolve_edges(part.Shape, ["concave edges"])
+    except sel.SelectorError:
+        edges = []
+    return spots + [("sharp inside edge", part.Shape.Edges[i - 1]) for i in edges]
+
+
+def _nearest_spot(spots, point):
+    if not spots:
+        return None
+    vertex = Part.Vertex(point)
+    kind, dist = min(((k, vertex.distToShape(shape)[0]) for k, shape in spots), key=lambda t: t[1])
+    return {"kind": kind, "distance_mm": _r(dist, 3)}
+
+
+def _summary(analysis, name, probes):
     results = _members(analysis, base="Fem::FemResultObject")
     if not results:
         raise RuntimeError(f"{name} has no results yet. Run fea_run first.")

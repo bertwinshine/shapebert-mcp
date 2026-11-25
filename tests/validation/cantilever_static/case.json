@@ -1,0 +1,34 @@
+{
+ "title": "Cantilever, end load",
+ "description": "Steel bar 200 x 20 x 20 mm, end x = 0 fixed, 1000 N down (-z) spread over the free end x = 200.",
+ "box_mm": [200, 20, 20],
+ "material": "steel",
+ "material_values": {"E_mpa": 210000, "nu": 0.3},
+ "fea_setup": {
+  "analysis_type": "static",
+  "fixed_faces": ["-X"],
+  "loads": [{"type": "force", "faces": ["+X"], "value_n": 1000, "direction": [0, 0, -1]}],
+  "mesh_size_mm": 4
+ },
+ "probes": [[200, 10, 10], [100, 10, 20]],
+ "quantities": [
+  {
+   "id": "tip_deflection_mm",
+   "label": "Tip deflection (centre of the free end, -z)",
+   "unit": "mm",
+   "formula": "F L^3 / (3 E I), I = b h^3 / 12",
+   "citation": "W. C. Young, R. G. Budynas, A. M. Sadegh, Roark's Formulas for Stress and Strain, 8th ed., McGraw-Hill 2012, Table 8.1 case 1a (cantilever, end load)",
+   "tolerance_pct": 3,
+   "tolerance_reason": "Euler-Bernoulli theory leaves out shear deformation, which adds F L / (k G A), about 0.8 % at L/h = 10; the rest covers the discretisation error of a 4 mm mesh."
+  },
+  {
+   "id": "bending_stress_mid_mpa",
+   "label": "Bending stress at mid-length, top face",
+   "unit": "MPa",
+   "formula": "M c / I with M = F (L - x) and c = h/2, at the x of the probe's node",
+   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Chapter 5, normal stresses in beams (flexure formula)",
+   "tolerance_pct": 3,
+   "tolerance_reason": "Nodal stresses are extrapolated from the integration points, about 1 % off at this mesh; on the free top face the other stresses are zero, so von Mises equals the bending stress."
+  }
+ ]
+}

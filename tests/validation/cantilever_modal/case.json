@@ -1,0 +1,33 @@
+{
+ "title": "Cantilever, natural frequencies",
+ "description": "Steel bar 200 x 20 x 20 mm, end x = 0 fixed. The square section bends the same way in y and z, so the first two modes share one frequency.",
+ "box_mm": [200, 20, 20],
+ "material": "steel",
+ "material_values": {"E_mpa": 210000, "nu": 0.3, "density_kg_m3": 7850},
+ "fea_setup": {
+  "analysis_type": "modal",
+  "fixed_faces": ["-X"],
+  "modes": 4,
+  "mesh_size_mm": 4
+ },
+ "quantities": [
+  {
+   "id": "mode1_hz",
+   "label": "First bending frequency, mode 1",
+   "unit": "Hz",
+   "formula": "(lambda1^2 / (2 pi)) sqrt(E I / (rho A L^4)), lambda1 = first root of cos(x) cosh(x) = -1 (1.8751)",
+   "citation": "R. D. Blevins, Formulas for Natural Frequency and Mode Shape, Van Nostrand Reinhold 1979, Table 8-1 (single-span beams, clamped-free)",
+   "tolerance_pct": 3,
+   "tolerance_reason": "Euler-Bernoulli theory leaves out shear deformation and rotary inertia, which lower the real frequency by about 1 % at L/h = 10."
+  },
+  {
+   "id": "mode2_hz",
+   "label": "First bending frequency, mode 2 (other direction)",
+   "unit": "Hz",
+   "formula": "as mode 1 (square section: I is the same about y and z)",
+   "citation": "R. D. Blevins, Formulas for Natural Frequency and Mode Shape, Van Nostrand Reinhold 1979, Table 8-1 (single-span beams, clamped-free)",
+   "tolerance_pct": 3,
+   "tolerance_reason": "As mode 1."
+  }
+ ]
+}

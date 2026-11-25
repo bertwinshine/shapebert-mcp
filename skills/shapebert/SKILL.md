@@ -32,7 +32,8 @@ knowledge base, the exact calculators and the checks - use them every time.
   adds and give the install steps from the report, or offer a version without it.
   Never install add-ons yourself.
 - Domain checks in FreeCAD: `hydrostatics`, `check_printability`
-- FEA (CalculiX + Gmsh, see "FEA checks" below): `fea_setup`, `fea_run`, `fea_results`
+- FEA (CalculiX + Gmsh, see "FEA checks" below): `fea_setup`, `fea_run`, `fea_results`,
+  `fea_convergence`
 - Calculators (exact maths, never do this arithmetic in your head):
   `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld`, `calc_fasteners`, `calc_shafts`,
   `calc_flanges`
@@ -201,8 +202,21 @@ values", follow conventions.md / the domain defaults and report every value chos
 - A linear buckling load is the ideal elastic limit of a perfectly straight part; never
   present it as the part's capacity. Real parts buckle lower: quote the returned note.
 - Never call a part "safe" without the safety factor against yield and the note that
-  this is a simplified linear check. Peak stress right at a fixed edge is usually a
-  mesh singularity: say so instead of reporting it as the real stress.
+  this is a simplified linear check.
+- Always show the `assumptions` block of `fea_results` with the result: element type,
+  mesh size and node/element count, material values and their source, each support
+  and load (selector, face, centre, normal, value), units, solver version, and every
+  warning in it, word for word.
+- Never report stress at a support or a singularity as a result. When the warnings
+  say the peak sits next to a fixed face or sharp inside edge, report
+  `max_von_mises_away_from_singularities_mpa` and its safety factor instead, and say
+  why. Treat a probe marked `near_singularity` the same way.
+- Run `fea_convergence` before calling a result final. If it is not converged, refine
+  `mesh_size_mm` in `fea_setup` and check again; until then, call the result
+  preliminary.
+- List every material value the block marks as a default (the table values for the
+  chosen material, a defaulted initial temperature) among the assumptions at the end
+  of the report, by name and value.
 - If `equilibrium_ok` is false, a load or fixed face is wrong: fix it, don't report.
 - Where a hand formula exists (beam, plate, bar), compare with it; a large gap means the
   setup is wrong or the mesh too coarse.

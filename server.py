@@ -148,6 +148,7 @@ DESTRUCTIVE_TOOLS = {
     "save_example",
     "fea_setup",
     "fea_run",
+    "fea_convergence",
 }
 
 
@@ -1189,7 +1190,7 @@ def fea_setup(
     analysis_type: str = "static",
     modes: int = 6,
     temperatures: list[dict] | None = None,
-    initial_temperature_c: float = 20.0,
+    initial_temperature_c: float | None = None,
     sliding_faces: list[str] | None = None,
     time_end_s: float | None = None,
     time_step_s: float | None = None,
@@ -1234,7 +1235,8 @@ def fea_setup(
       {"type": "pressure", "faces": ["top"], "value_mpa": 0.1}
         (positive presses on the face, negative pulls).
     temperatures: list of {"faces": ["-X"], "temperature_c": 100}.
-    initial_temperature_c: start and reference temperature (default 20 °C).
+    initial_temperature_c: start and reference temperature (20 °C if not given; then it is
+    listed as a default in fea_results' assumptions).
     mesh_size_mm: largest element edge; about a third of the thinnest wall or less gives
     usable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that
     would give more than about 2 million elements (part volume / size^3 x 6) is refused.
@@ -1255,7 +1257,12 @@ def fea_setup(
             time_step_s=time_step_s,
         )
         fea.check_name(name)
-        initial_temperature_c = float(initial_temperature_c)
+        defaults = ["initial_temperature_c"] if initial_temperature_c is None else []
+        initial_temperature_c = (
+            fea.DEFAULT_INITIAL_TEMPERATURE_C
+            if initial_temperature_c is None
+            else float(initial_temperature_c)
+        )
     except KeyError as e:
         return _refused(f"an entry is missing the key {e}")
     except (ValueError, TypeError) as e:
@@ -1277,6 +1284,7 @@ def fea_setup(
         temperatures=checked["temperatures"],
         initial_temperature_c=initial_temperature_c,
         max_elements=fea.MAX_MESH_ELEMENTS,
+        defaults=defaults,
     )
     if out.get("ok") is not False:
         out["material"] = mat
@@ -1310,11 +1318,52 @@ def fea_run(name: str = "FEA", timeout_s: float = 600) -> str:
 
 
 @tool()
+def fea_convergence(name: str = "FEA", timeout_s: float = 900) -> str:
+    """Mesh convergence check of a fea_setup analysis: solves it at three mesh sizes,
+    each 1.5 x finer, ending at the setup's mesh_size_mm (h): 2.25 h, 1.5 h, h. It
+    follows one key result: max displacement (static, thermomechanical), first natural
+    frequency (modal), lowest load factor (buckling) or the largest heat flow
+    (thermal). converged is true when the last change is under 2 %; otherwise rerun
+    fea_setup with a smaller mesh_size_mm and check again. The coarser meshes are
+    cheap, so it takes about 1.4 x as long as one fea_run; a run longer than timeout_s
+    returns still_running and a job_id for get_job_result. The results of mesh h stay
+    loaded and fea_results shows the verdict in its assumptions block. Run it before
+    calling a result final."""
+    try:
+        fea.check_name(name)
+        threads = fea.ccx_threads()
+    except ValueError as e:
+        return _refused(str(e))
+    folder = safety.work_dir() / "fea" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    out = _fc(
+        "fea_convergence",
+        timeout=timeout_s,
+        src=FEA_TOOLS_SRC,
+        name=name,
+        work_dir=str(folder),
+        threads=threads,
+        factor=fea.REFINE_FACTOR,
+        meshes=fea.CONVERGENCE_MESHES,
+    )
+    if out.get("still_running"):
+        out["advice"] = f"Call get_job_result(job_id={out['job_id']!r}) until it finishes, then fea_results."
+    elif out.get("ok") is not False:
+        summary = fea.convergence_summary(out["runs"], None)
+        del summary["applies_to_this_mesh"]  # always this run's own mesh here
+        out = {"analysis": out["analysis"], **summary}
+    return _json(out)
+
+
+@tool()
 def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> str:
     """Results of a solved analysis, units mm / N / MPa / °C / W / Hz.
     Static: max von Mises stress and where, max displacement and where, the reaction
     force sum at the fixed faces (equilibrium_ok: it balances the applied loads),
-    the mesh size and the safety factor against yield.
+    the mesh size and the safety factor against yield. Also the peak von Mises stress
+    away from singular spots (more than 2 mesh sizes from fixed faces and sharp inside
+    edges) with its safety factor: report that one when the overall peak sits at such
+    a spot.
     Modal: each mode's natural frequency, its peak motion direction and place, and the
     part mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).
     Thermal: min/max temperature and where, heat flow into the part at each
@@ -1326,16 +1375,32 @@ def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> s
     the applied load would buckle the ideal part (real parts buckle lower, see note).
     probes: points [x, y, z] in mm; returns the values at the nearest mesh node
     (temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.
-    That node can be up to one mesh size away; node_at_mm gives its position.
-    Every reply has a `note` on the limits of this simplified linear check, and `ccx`:
-    the CalculiX binary, version and thread count that produced the results."""
+    That node can be up to one mesh size away; node_at_mm gives its position. A probe
+    whose node is next to a fixed face or sharp inside edge gets near_singularity.
+    Every reply has `assumptions`: analysis type; element type and order; mesh size,
+    node and element count and mesher; material values used, each with its source;
+    every support, load and temperature with selector, face, centre, normal and value;
+    units; CalculiX version, threads and mesh/solve times; the mesh convergence check;
+    and `warnings` (first-order elements, peak stress at a singularity, convergence
+    not checked or not reached, defaults used). Show that block with every result.
+    Also a `note` on the limits of this simplified linear check, and `ccx`: the
+    CalculiX binary, version and thread count that produced the results."""
     try:
         fea.check_name(name)
         probes = fea.check_probes(probes)
     except (ValueError, TypeError) as e:
         return _refused(str(e))
-    out = _fc("fea_results", src=FEA_TOOLS_SRC, name=name, probes=probes)
+    out = _fc(
+        "fea_results",
+        src=FEA_TOOLS_SRC,
+        name=name,
+        probes=probes,
+        band_mesh_sizes=fea.SINGULARITY_BAND_MESH_SIZES,
+    )
     if out.get("ok") is not False:
+        record = out.pop("record")
+        record["probes"] = out.get("probes") or []
+        out["assumptions"] = fea.assumptions(out["analysis_type"], record)
         out["note"] = fea.NOTES[out["analysis_type"]]
         material_note = fea.MATERIALS.get(out.get("material"), {}).get("note")
         if material_note:

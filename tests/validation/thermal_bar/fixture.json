@@ -1,0 +1,14 @@
+{
+ "environments": {
+  "FreeCAD 1.1.3, CalculiX 2.22, Gmsh 4.15.0, Windows": {
+   "frozen": "2026-11-25",
+   "reason": "First accepted results: all six cases within tolerance on the first run",
+   "values": {
+    "heat_flow_w": 8.0,
+    "temperature_x25_c": 80.225,
+    "temperature_x50_c": 60.12,
+    "temperature_x75_c": 40.386
+   }
+  }
+ }
+}

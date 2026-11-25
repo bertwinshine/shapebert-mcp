@@ -44,7 +44,7 @@ cut to its end, and `get_job_result` pages through all of it.
 | Parameters | `set_parameters`, `explain_params` |
 | Builders | `build_spur_gear`, `build_ring_gear`, `build_sheet_profile` |
 | Domain checks | `hydrostatics`, `check_printability` |
-| FEA (CalculiX) | `fea_setup`, `fea_run`, `fea_results`: linear static (stress, displacement, reactions, safety factor), modal (natural frequencies), steady and transient heat conduction (temperatures, heat flow), thermal stress, linear buckling |
+| FEA (CalculiX) | `fea_setup`, `fea_run`, `fea_results`, `fea_convergence`: linear static (stress, displacement, reactions, safety factor), modal (natural frequencies), steady and transient heat conduction (temperatures, heat flow), thermal stress, linear buckling; every result with its assumptions and a mesh convergence check |
 | Calculators | `calc_gears`, `calc_sheet_metal`, `calc_boat`, `calc_weld`, `calc_fasteners`, `calc_shafts`, `calc_flanges` |
 | Knowledge | `match_domain`, `list_knowledge`, `read_knowledge`, `search_examples`, `save_example`, `log_correction` |
 
@@ -98,6 +98,19 @@ a `user edit`. The sources are saved with the document. `explain_params` lists e
 parameter with its value, unit, source and detail, shows a value changed by hand in
 the spreadsheet as a user edit, and lists every default as an assumption, so a
 report says plainly which numbers were not given.
+
+Every FEA result from `fea_results` comes with an `assumptions` block: the analysis
+type, the element type and order (C3D10, second-order tetrahedra, by default), mesh
+size, node and element count and the Gmsh version, the material values the analysis
+used with their source, every support, load and temperature with the selector that
+chose it and the face's centre and normal, the units, and the CalculiX version and
+mesh and solve times. Its `warnings` list first-order elements, a peak stress within
+two mesh sizes of a fixed face or a sharp inside edge (a singularity that grows as the
+mesh is refined; the reply then also gives the peak away from those spots), a mesh
+that is not checked or not converged, and every default that was used.
+`fea_convergence` solves the analysis again at 2.25 and 1.5 times its mesh size and
+reports the change in the key result (displacement, first frequency, buckling factor
+or heat flow); under 2 % counts as converged.
 
 `run_freecad_code` runs each script in a fresh namespace and returns the result,
 any printed output, and a summary of every object the script created. If the
@@ -274,6 +287,18 @@ failed script, hole counting, a STEP export and re-import, parametric rebuilds,
 hydrostatics against hand calculations for a box hull and a catamaran, and that
 every saved example still builds. GitHub Actions runs the unit tests on Windows
 and Linux and the integration tests on headless FreeCAD 1.1.
+
+## Validation
+
+[docs/validation.md](docs/validation.md) compares the FEA tools with textbook answers
+for six cases: a cantilever (tip deflection and bending stress, natural frequency,
+Euler buckling), a bar in tension, a bar with steady heat conduction and a freely
+heated bar. Each case in `tests/validation/` holds its setup, the source of the
+formula, the tolerance and why, and the accepted FEA result. `pytest tests/validation`
+runs them against a listener (about 30 s): every value has to be within its tolerance,
+and on the FreeCAD, CalculiX and Gmsh versions a result was frozen with, it must not
+move by more than 1e-6 relative. `python tests/validation/report.py` writes the page again;
+with `--freeze "reason"` it also accepts the new results.
 
 ## Benchmark
 
@@ -501,7 +526,7 @@ you before the risky ones.
 | `run_freecad_code` | Can overwrite (runs any code, off by default) |
 | `export_model`, `save_document` | Can overwrite (files in the work folder) |
 | `save_example` | Can overwrite (an example, only with `overwrite=True`) |
-| `fea_setup`, `fea_run` | Can overwrite (an analysis of the same name and its solver files) |
+| `fea_setup`, `fea_run`, `fea_convergence` | Can overwrite (an analysis of the same name and its solver files) |
 
 ## Your own knowledge
 
@@ -538,7 +563,8 @@ correction loop, the checking tools, the calculators, and the hydrostatics and
 printability checks. Next:
 
 - [x] v0.5: quick FEM checks with CalculiX: linear static and modal
-- [ ] FEA self-check suite and more analysis types (brackets, frames, gear teeth)
+- [x] FEA validation against analytical answers ([docs/validation.md](docs/validation.md))
+- [ ] More FEA analysis types and validation cases (brackets, frames, gear teeth)
 - [ ] v0.6: rebuild 3D parts from a 2D drawing or photo, scored with `compare_shapes`
 - [ ] Listing in the Claude plugin directory and the FreeCAD Addon Manager, with an
       example gallery

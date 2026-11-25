@@ -374,3 +374,225 @@ def test_fea_setup_finds_a_part_by_name_or_label(tools):
     assert tools._unique_obj(doc, "Box001").Name == "Box001"
     with pytest.raises(RuntimeError, match="not found"):
         tools._unique_obj(doc, "Missing")
+
+
+FACE = {"face": "Face1", "selector": "-X", "centre_mm": [0, 5, 5], "normal": [-1, 0, 0], "area_mm2": 100}
+
+
+def _record(analysis_type="static", element="C3D10", **extra):
+    setup = {
+        "fixed_faces": [FACE],
+        "sliding_faces": [],
+        "loads": [{"type": "force", "value_n": 100.0, "direction": [0, 0, -1], "face_info": [FACE]}],
+        "temperatures": [],
+        "initial_temperature_c": None,
+        "modes": None,
+        "material": fea.material("steel"),
+        "defaults": [],
+        **extra.pop("setup", {}),
+    }
+    run = {
+        "element_type": element,
+        "nodes": 1200,
+        "elements": 600,
+        "mesh_size_mm": 3.0,
+        "mesher": "Gmsh 4.15.0",
+        "mesh_s": 0.5,
+        "solve_s": 1.5,
+    }
+    return {"setup": setup, "run": run, "ccx": {"version": "2.22", "threads": 1}, **extra}
+
+
+def _codes(block):
+    return [w["code"] for w in block["warnings"]]
+
+
+def test_block_lists_elements_mesh_material_supports_loads_units_and_solver():
+    block = fea.assumptions("static", _record())
+    assert block["elements"] == {"type": "C3D10", "order": 2, "description": "10-node quadratic tetrahedra"}
+    assert block["mesh"] == {
+        "max_element_size_mm": 3.0,
+        "nodes": 1200,
+        "elements": 600,
+        "mesher": "Gmsh 4.15.0",
+    }
+    assert set(block["material"]["values"]) == {"E_mpa", "nu", "yield_mpa"}
+    e = block["material"]["values"]["E_mpa"]
+    assert e["value"] == 210000 and e["unit"] == "MPa" and e["source"]["type"] == "default"
+    assert "S235" in e["source"]["where"]
+    assert block["supports"] == [{"kind": "fixed", **FACE}]
+    assert block["loads"] == [{"type": "force", "faces": [FACE], "value_n": 100.0, "direction": [0, 0, -1]}]
+    assert block["units"]["stress"] == "MPa"
+    assert block["solver"] == {
+        "name": "CalculiX",
+        "version": "2.22",
+        "threads": 1,
+        "mesh_s": 0.5,
+        "solve_s": 1.5,
+    }
+    assert _codes(block) == ["convergence_not_checked", "defaults_used"]
+
+
+@pytest.mark.parametrize(
+    "analysis_type, keys",
+    [
+        ("modal", {"E_mpa", "nu", "density_kg_m3"}),
+        ("buckling", {"E_mpa", "nu"}),
+        ("thermal_steady", {"k_w_mk"}),
+        ("thermal_transient", {"k_w_mk", "density_kg_m3", "cp_j_kgk"}),
+        ("thermomechanical", {"E_mpa", "nu", "alpha_1_k", "k_w_mk", "yield_mpa"}),
+    ],
+)
+def test_block_shows_the_material_values_each_analysis_uses(analysis_type, keys):
+    assert set(fea.assumptions(analysis_type, _record(analysis_type))["material"]["values"]) == keys
+
+
+def test_typical_plastic_thermal_values_say_so_in_their_source():
+    values = fea.material_values(fea.material("PLA"), "thermal_transient")
+    assert "typical value" in values["k_w_mk"]["source"]["where"]
+    assert (
+        "typical value" not in fea.material_values(fea.material("PLA"), "modal")["E_mpa"]["source"]["where"]
+    )
+
+
+def test_first_order_elements_are_warned_about():
+    assert _codes(fea.assumptions("static", _record(element="C3D4")))[0] == "first_order_elements"
+    assert _codes(fea.assumptions("static", _record(element="C3D20R")))[0] == "unknown_element_type"
+
+
+def test_peak_stress_next_to_a_fixed_face_is_a_singularity_with_the_value_away_from_it():
+    peak = {
+        "max_von_mises_mpa": 151.3,
+        "band_mm": 6.0,
+        "near": {"kind": "fixed face", "distance_mm": 1.7},
+        "away": {"max_von_mises_mpa": 142.4, "at_mm": [8.1, 3.3, 20]},
+    }
+    probes = [{"node_at_mm": [0, 10, 20], "near_singularity": {"kind": "fixed face", "distance_mm": 0.0}}]
+    block = fea.assumptions("static", _record(peak_stress=peak, probes=probes))
+    first, second = block["warnings"][:2]
+    assert first["code"] == "stress_at_singularity"
+    assert (
+        "151.3 MPa" in first["message"]
+        and "142.4 MPa" in first["message"]
+        and "not a real" in first["message"]
+    )
+    assert second["code"] == "probe_at_singularity" and "Probe 1" in second["message"]
+    clean = {**peak, "near": None}
+    assert "stress_at_singularity" not in _codes(fea.assumptions("static", _record(peak_stress=clean)))
+
+
+def _runs(*values, sizes=(6.75, 4.5, 3.0)):
+    return [
+        {"mesh_size_mm": s, "quantity": "max_displacement_mm", "value": v}
+        for s, v in zip(sizes, values, strict=True)
+    ]
+
+
+def test_convergence_compares_the_last_two_meshes_against_two_percent():
+    ok = fea.convergence_summary(_runs(1.10, 1.04, 1.03), 3.0)
+    assert ok["change_pct"] == [5.455, 0.962] and ok["converged"] and ok["applies_to_this_mesh"]
+    bad = fea.convergence_summary(_runs(1.0, 1.05, 1.08), 3.0)
+    assert not bad["converged"] and bad["change_pct"][-1] == pytest.approx(2.857, abs=1e-3)
+    assert not fea.convergence_summary(_runs(1.0, 1.0, 1.0), 2.0)["applies_to_this_mesh"]
+
+
+@pytest.mark.parametrize(
+    "values, mesh_mm, code",
+    [
+        ((1.10, 1.04, 1.03), 3.0, None),
+        ((1.0, 1.05, 1.08), 3.0, "mesh_not_converged"),
+        ((1.10, 1.04, 1.03), 2.0, "convergence_not_checked"),  # checked on another mesh
+    ],
+)
+def test_block_reports_the_convergence_verdict(values, mesh_mm, code):
+    record = _record(convergence=_runs(*values))
+    record["run"]["mesh_size_mm"] = mesh_mm
+    codes = [c for c in _codes(fea.assumptions("static", record)) if "converge" in c]
+    assert codes == ([code] if code else [])
+
+
+def test_defaulted_initial_temperature_is_named_only_where_it_matters():
+    setup = {"initial_temperature_c": 20.0, "defaults": ["initial_temperature_c"]}
+    thermo = fea.assumptions("thermomechanical", _record("thermomechanical", setup=setup))
+    assert thermo["initial_temperature_c"]["source"]["type"] == "default"
+    defaults = thermo["warnings"][-1]
+    assert defaults["code"] == "defaults_used" and "20.0 °C" in defaults["message"]
+    assert "E_mpa 210000 MPa" in defaults["message"]
+    steady = fea.assumptions("thermal_steady", _record("thermal_steady", setup=setup))
+    assert "°C" not in steady["warnings"][-1]["message"]
+    given = fea.assumptions(
+        "thermomechanical", _record("thermomechanical", setup={"initial_temperature_c": 25.0})
+    )
+    assert given["initial_temperature_c"] == {
+        "value": 25.0,
+        "source": {"type": "input", "where": "initial_temperature_c given to fea_setup"},
+    }
+
+
+def test_an_analysis_without_records_says_so():
+    assert _codes(fea.assumptions("static", {"setup": None, "run": None, "ccx": None})) == ["record_missing"]
+
+
+def test_element_type_is_read_from_the_calculix_input(tools, tmp_path):
+    inp = tmp_path / "FEA_Mesh.inp"
+    inp.write_text("*Node\n1, 0, 0, 0\n*Element, TYPE=C3D10, ELSET=Evolumes\n1, 1\n", encoding="utf-8")
+    assert tools._element_type(str(inp)) == "C3D10"
+    inp.write_text("*NODE\n", encoding="utf-8")
+    assert tools._element_type(str(inp)) == "unknown"
+
+
+def test_a_missing_program_has_an_unknown_version(tools, tmp_path):
+    assert tools._program_version("") == "unknown"
+    assert tools._program_version(str(tmp_path / "gmsh.exe")) == "unknown"
+
+
+def test_fea_results_turns_the_record_into_the_assumptions_block(monkeypatch):
+    server = pytest.importorskip("server")
+    calls = []
+
+    def fake_fc(func, **kw):
+        calls.append(kw)
+        return {"analysis_type": "static", "material": "steel", "probes": [], "record": _record()}
+
+    monkeypatch.setattr(server, "_fc", fake_fc)
+    reply = json.loads(server.fea_results("FEA"))
+    assert "record" not in reply and reply["assumptions"]["elements"]["type"] == "C3D10"
+    assert calls[0]["band_mesh_sizes"] == fea.SINGULARITY_BAND_MESH_SIZES
+
+
+def test_fea_setup_marks_a_missing_initial_temperature_as_a_default(monkeypatch):
+    server = pytest.importorskip("server")
+    calls = []
+    monkeypatch.setattr(server, "_fc", lambda func, **kw: calls.append(kw) or {"ok": True})
+    setup = {
+        "part": "Bar",
+        "material": "steel",
+        "fixed_faces": ["Face1"],
+        "mesh_size_mm": 3,
+        "analysis_type": "thermomechanical",
+        "temperatures": [{"faces": ["Face1"], "temperature_c": 120}],
+    }
+    server.fea_setup(**setup)
+    server.fea_setup(**setup, initial_temperature_c=25)
+    assert [(c["defaults"], c["initial_temperature_c"]) for c in calls] == [
+        (["initial_temperature_c"], 20.0),
+        ([], 25.0),
+    ]
+
+
+def test_fea_convergence_sends_the_refinement_and_summarises_the_runs(monkeypatch, tmp_path):
+    server = pytest.importorskip("server")
+    calls = []
+    monkeypatch.setenv("FREECAD_MCP_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("FREECAD_MCP_CCX_THREADS", raising=False)
+
+    def fake_fc(func, **kw):
+        calls.append((func, kw))
+        return {"analysis": "FEA", "runs": _runs(1.10, 1.04, 1.03)}
+
+    monkeypatch.setattr(server, "_fc", fake_fc)
+    reply = json.loads(server.fea_convergence("FEA"))
+    func, kw = calls[0]
+    assert func == "fea_convergence" and kw["factor"] == 1.5 and kw["meshes"] == 3 and kw["threads"] == 1
+    assert reply["converged"] is True and reply["change_pct"] == [5.455, 0.962]
+    assert "applies_to_this_mesh" not in reply

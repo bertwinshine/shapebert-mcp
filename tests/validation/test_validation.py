@@ -1,0 +1,154 @@
+"""FEA reference cases against analytical answers and frozen results; needs a FreeCAD listener.
+
+They close every open FreeCAD document. tests/validation/report.py writes
+docs/validation.md from the same cases and freezes accepted results.
+"""
+
+import json
+import math
+
+import cases
+import pytest
+from conftest import LIVE_PORT, listener_up
+
+import shapebert_selectors as selectors
+
+CASES = cases.load_cases()
+CANTILEVER = next(c for c in CASES if c["id"] == "cantilever_static")
+
+
+def test_every_case_names_its_source_tolerance_and_reason():
+    assert len(CASES) == 6
+    for case in CASES:
+        assert set(cases.QUANTITIES[case["id"]]) == {q["id"] for q in case["quantities"]}, case["id"]
+        for q in case["quantities"]:
+            assert q["citation"] and q["formula"] and q["tolerance_reason"], (case["id"], q["id"])
+            assert 0 < q["tolerance_pct"] <= 5
+
+
+def test_the_frequency_parameter_is_solved_not_copied():
+    lam = cases.clamped_free_eigenvalue(1)
+    assert math.cos(lam) * math.cosh(lam) + 1 == pytest.approx(0, abs=1e-9)
+    assert lam == pytest.approx(1.875104, abs=1e-6)
+    assert cases.clamped_free_eigenvalue(2) == pytest.approx(4.694091, abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    "case_id, quantity, approx",
+    [
+        ("cantilever_static", "tip_deflection_mm", 0.95),
+        ("tension_bar", "axial_stress_mpa", 100),
+        ("cantilever_modal", "mode1_hz", 418),
+        ("thermal_bar", "heat_flow_w", 8),
+        ("thermomech_free_bar", "elongation_mm", 0.12),
+    ],
+)
+def test_formulas_give_the_known_hand_values(case_id, quantity, approx):
+    case = next(c for c in CASES if c["id"] == case_id)
+    formula = cases.QUANTITIES[case_id][quantity][1]
+    assert formula(case, {}) == pytest.approx(approx, rel=0.01)
+
+
+def test_frozen_results_are_compared_in_a_tight_band(tmp_path, monkeypatch):
+    monkeypatch.setattr(cases, "HERE", tmp_path)
+    (tmp_path / "x").mkdir()
+    rows = [{"id": "q", "fea": 1.0}]
+    assert cases.frozen_mismatches("x", "env", rows) is None
+    cases.freeze("x", "env", rows, "first accepted result")
+    frozen = json.loads((tmp_path / "x" / "fixture.json").read_text(encoding="utf-8"))
+    assert frozen["environments"]["env"]["reason"] == "first accepted result"
+    assert cases.frozen_mismatches("x", "env", [{"id": "q", "fea": 1.0 + 5e-7}]) == []
+    assert cases.frozen_mismatches("x", "env", [{"id": "q", "fea": 1.00001}]) == [
+        "q: frozen 1.0, now 1.00001"
+    ]
+    assert cases.frozen_mismatches("x", "other env", rows) is None
+
+
+live = pytest.mark.skipif(not listener_up(), reason=f"no FreeCAD listener on port {LIVE_PORT}")
+
+
+@pytest.fixture(scope="module")
+def solved():
+    server = pytest.importorskip("server")
+    fem = server._fc("fem_programs")
+    if "not found" in (fem.get("calculix"), fem.get("gmsh")):
+        pytest.skip("CalculiX or Gmsh not installed")
+    out = {}
+    for case in CASES:
+        results = cases.solve(server, case)
+        out[case["id"]] = {
+            "results": results,
+            "rows": cases.compare(case, results),
+            "env": cases.environment(server, results),
+        }
+    yield server, out
+    server.run_freecad_code(
+        "if 'MCP_Validation' in App.listDocuments():\n    App.closeDocument('MCP_Validation')"
+    )
+
+
+@live
+@pytest.mark.parametrize(
+    "case_id, quantity", [(c["id"], q["id"]) for c in CASES for q in c["quantities"]], ids=lambda v: v
+)
+def test_fea_matches_the_analytical_answer(solved, case_id, quantity):
+    row = next(r for r in solved[1][case_id]["rows"] if r["id"] == quantity)
+    assert row["passed"], f"FEA {row['fea']} vs analytical {row['analytical']}: {row['error_pct']:.3f} %"
+
+
+@live
+@pytest.mark.parametrize("case_id", [c["id"] for c in CASES])
+def test_fea_result_has_not_moved_from_the_frozen_one(solved, case_id):
+    run = solved[1][case_id]
+    moved = cases.frozen_mismatches(case_id, run["env"], run["rows"])
+    if moved is None:
+        pytest.skip(f"no frozen result for {run['env']}")
+    assert moved == [], "result changed; freeze again only on purpose (report.py --freeze)"
+
+
+def _canonical(face):
+    return selectors.parse_face(face, allow_names=True)
+
+
+@live
+@pytest.mark.parametrize("case", CASES, ids=lambda c: c["id"])
+def test_assumptions_block_shows_what_was_solved(solved, case):
+    block = solved[1][case["id"]]["results"]["assumptions"]
+    assert block["elements"] == {"type": "C3D10", "order": 2, "description": "10-node quadratic tetrahedra"}
+    assert block["mesh"]["max_element_size_mm"] == case["fea_setup"]["mesh_size_mm"]
+    assert block["mesh"]["nodes"] > 0 and block["mesh"]["elements"] > 0
+    assert block["mesh"]["mesher"].startswith("Gmsh ") and block["solver"]["version"] != "unknown"
+    used = {k: v["value"] for k, v in block["material"]["values"].items()}
+    assert {k: used[k] for k in case["material_values"]} == case["material_values"]
+    setup = case["fea_setup"]
+    for kind in ("fixed", "sliding"):
+        given = [_canonical(f) for f in setup.get(f"{kind}_faces", [])]
+        assert [s["selector"] for s in block["supports"] if s["kind"] == kind] == given
+    assert [f["selector"] for load in block["loads"] for f in load["faces"]] == [
+        _canonical(face) for load in setup.get("loads", []) for face in load["faces"]
+    ]
+    codes = {w["code"] for w in block["warnings"]}
+    assert "first_order_elements" not in codes and "defaults_used" in codes
+
+
+@live
+def test_peak_stress_at_the_clamped_end_is_flagged_as_a_singularity(solved):
+    results = solved[1]["cantilever_static"]["results"]
+    codes = [w["code"] for w in results["assumptions"]["warnings"]]
+    assert "stress_at_singularity" in codes
+    assert results["max_von_mises_away_from_singularities_at_mm"][0] > 8
+    assert "near_singularity" not in results["probes"][1]
+
+
+@live
+def test_mesh_convergence_on_the_cantilever(solved):
+    """Solves at 9, 6 and 4 mm; the tip deflection settles well inside 2 %."""
+    server = solved[0]
+    cases.solve(server, CANTILEVER)
+    conv = cases.reply(server.fea_convergence(timeout_s=900))
+    assert [r["mesh_size_mm"] for r in conv["runs"]] == [9, 6, 4]
+    assert conv["quantity"] == "max_displacement_mm" and conv["converged"] is True
+    assert len(conv["change_pct"]) == 2 and conv["change_pct"][-1] < 2
+    block = cases.reply(server.fea_results())["assumptions"]
+    assert block["convergence"]["applies_to_this_mesh"] is True
+    assert "convergence_not_checked" not in {w["code"] for w in block["warnings"]}

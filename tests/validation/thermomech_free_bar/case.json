@@ -1,0 +1,35 @@
+{
+ "title": "Free bar, uniform heating",
+ "description": "Steel bar 100 x 20 x 10 mm, every face at 120 °C, stress-free at 20 °C (dT = 100 K). The faces x = 0, y = 0 and z = 0 are sliding supports: statically determinate, so the bar expands freely.",
+ "box_mm": [100, 20, 10],
+ "material": "steel",
+ "material_values": {"E_mpa": 210000, "nu": 0.3, "alpha_1_k": 1.2e-05},
+ "fea_setup": {
+  "analysis_type": "thermomechanical",
+  "sliding_faces": ["-X", "-Y", "-Z"],
+  "temperatures": [{"faces": ["-X", "+X", "-Y", "+Y", "-Z", "+Z"], "temperature_c": 120}],
+  "initial_temperature_c": 20,
+  "mesh_size_mm": 3
+ },
+ "probes": [[100, 10, 5]],
+ "quantities": [
+  {
+   "id": "elongation_mm",
+   "label": "Free thermal elongation",
+   "unit": "mm",
+   "formula": "alpha dT L",
+   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Section 2.5, thermal effects",
+   "tolerance_pct": 2,
+   "tolerance_reason": "Free uniform expansion is a linear displacement field, exact for any mesh; the band catches a support that restrains the bar."
+  },
+  {
+   "id": "max_von_mises_mpa",
+   "label": "Peak von Mises stress (zero in theory; error relative to E alpha dT, the stress of a fully clamped bar)",
+   "unit": "MPa",
+   "formula": "0 for a free bar",
+   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Section 2.5, thermal effects (a statically determinate structure carries no thermal stress)",
+   "tolerance_pct": 2,
+   "tolerance_reason": "Any stress means the supports restrain the expansion; 2 % of the clamped-bar stress (about 5 MPa) is the band."
+  }
+ ]
+}

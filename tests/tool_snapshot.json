@@ -1126,8 +1126,46 @@
    }
   },
   {
+   "name": "fea_convergence",
+   "description": "Mesh convergence check of a fea_setup analysis: solves it at three mesh sizes,\neach 1.5 x finer, ending at the setup's mesh_size_mm (h): 2.25 h, 1.5 h, h. It\nfollows one key result: max displacement (static, thermomechanical), first natural\nfrequency (modal), lowest load factor (buckling) or the largest heat flow\n(thermal). converged is true when the last change is under 2 %; otherwise rerun\nfea_setup with a smaller mesh_size_mm and check again. The coarser meshes are\ncheap, so it takes about 1.4 x as long as one fea_run; a run longer than timeout_s\nreturns still_running and a job_id for get_job_result. The results of mesh h stay\nloaded and fea_results shows the verdict in its assumptions block. Run it before\ncalling a result final.",
+   "inputSchema": {
+    "properties": {
+     "name": {
+      "default": "FEA",
+      "title": "Name",
+      "type": "string"
+     },
+     "timeout_s": {
+      "default": 900,
+      "title": "Timeout S",
+      "type": "number"
+     }
+    },
+    "title": "fea_convergenceArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "fea_convergenceOutput",
+    "type": "object"
+   },
+   "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "openWorldHint": false
+   }
+  },
+  {
    "name": "fea_results",
-   "description": "Results of a solved analysis, units mm / N / MPa / °C / W / Hz.\nStatic: max von Mises stress and where, max displacement and where, the reaction\nforce sum at the fixed faces (equilibrium_ok: it balances the applied loads),\nthe mesh size and the safety factor against yield.\nModal: each mode's natural frequency, its peak motion direction and place, and the\npart mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).\nThermal: min/max temperature and where, heat flow into the part at each\nfixed-temperature face (heat_balance_ok: in = out).\nThermal transient: as thermal at the last time step (time_s), and each probe also\ngets history_s_c, its temperature [time s, °C] at every step.\nThermomechanical: as static, plus the temperature range.\nBuckling: load factor and critical load per mode; lowest_load_factor below ~1 means\nthe applied load would buckle the ideal part (real parts buckle lower, see note).\nprobes: points [x, y, z] in mm; returns the values at the nearest mesh node\n(temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.\nThat node can be up to one mesh size away; node_at_mm gives its position.\nEvery reply has a `note` on the limits of this simplified linear check, and `ccx`:\nthe CalculiX binary, version and thread count that produced the results.",
+   "description": "Results of a solved analysis, units mm / N / MPa / °C / W / Hz.\nStatic: max von Mises stress and where, max displacement and where, the reaction\nforce sum at the fixed faces (equilibrium_ok: it balances the applied loads),\nthe mesh size and the safety factor against yield. Also the peak von Mises stress\naway from singular spots (more than 2 mesh sizes from fixed faces and sharp inside\nedges) with its safety factor: report that one when the overall peak sits at such\na spot.\nModal: each mode's natural frequency, its peak motion direction and place, and the\npart mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).\nThermal: min/max temperature and where, heat flow into the part at each\nfixed-temperature face (heat_balance_ok: in = out).\nThermal transient: as thermal at the last time step (time_s), and each probe also\ngets history_s_c, its temperature [time s, °C] at every step.\nThermomechanical: as static, plus the temperature range.\nBuckling: load factor and critical load per mode; lowest_load_factor below ~1 means\nthe applied load would buckle the ideal part (real parts buckle lower, see note).\nprobes: points [x, y, z] in mm; returns the values at the nearest mesh node\n(temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.\nThat node can be up to one mesh size away; node_at_mm gives its position. A probe\nwhose node is next to a fixed face or sharp inside edge gets near_singularity.\nEvery reply has `assumptions`: analysis type; element type and order; mesh size,\nnode and element count and mesher; material values used, each with its source;\nevery support, load and temperature with selector, face, centre, normal and value;\nunits; CalculiX version, threads and mesh/solve times; the mesh convergence check;\nand `warnings` (first-order elements, peak stress at a singularity, convergence\nnot checked or not reached, defaults used). Show that block with every result.\nAlso a `note` on the limits of this simplified linear check, and `ccx`: the\nCalculiX binary, version and thread count that produced the results.",
    "inputSchema": {
     "properties": {
      "name": {
@@ -1216,7 +1254,7 @@
   },
   {
    "name": "fea_setup",
-   "description": "Set up a CalculiX analysis of one solid part. Units: mm, N, MPa, °C, W, Hz.\nReplaces an earlier analysis with the same name. Needs CalculiX and Gmsh (doctor).\n\nanalysis_type and what it needs:\n  \"static\"         fixed_faces + loads -> stress, displacement, reactions, safety factor\n  \"modal\"          fixed_faces (no loads) -> first `modes` natural frequencies\n  \"thermal_steady\" temperatures (no fixed_faces, no loads) -> temperature field and\n                   heat flow at each fixed-temperature face; other faces are insulated\n  \"thermomechanical\" supports + temperatures (+ optional loads) -> thermal stress and\n                   expansion; the part starts stress-free at initial_temperature_c.\n                   For a uniform temperature change give every face that temperature.\n  \"buckling\"       supports + loads -> first `modes` buckling load factors; factor x\n                   applied load = ideal elastic buckling load (use 1 N to read it directly)\n  \"thermal_transient\" temperatures + time_end_s + time_step_s -> temperatures over time;\n                   the part starts at initial_temperature_c, the face temperatures\n                   switch on at time 0, other faces are insulated. At most 500 steps.\n                   Accuracy over time is first order: the error shrinks with the\n                   step. If early values matter, run again with half the step and\n                   compare.\nInputs a type does not use are refused, so nothing is silently ignored.\nSupports are fixed_faces and/or sliding_faces (static, modal, thermomechanical).\n\nmaterial: one of steel (S235), aluminium (6061-T6), PETG, PLA; others are refused.\nThe reply lists the values used.\nFaces: each list takes face selectors or face names, mixed if needed. Selectors\n(\"top\", \"bottom\", \"+X\" ... \"-Z\", \"largest planar face\", \"bore\",\n\"cylindrical faces radius 4\"; see list_faces) are found from the geometry, so they\npick the same faces however FreeCAD numbers them; names like \"Face1\" are taken as\ngiven. A selector that matches nothing, or ties, is refused with the candidates.\nfixed_faces: faces held completely still, e.g. [\"bottom\"] or [\"Face1\"]. This also\nblocks thermal expansion within the face.\nsliding_faces: flat faces facing along x, y or z that may slide in their own plane\nbut not move along their normal (a symmetry plane or a frictionless wall). Three of\nthem facing x, y and z hold a part without restraining its thermal expansion.\nloads: list of\n  {\"type\": \"force\", \"faces\": [\"+X\"], \"value_n\": 100, \"direction\": [0, 0, -1]}\n    (total force in N spread over the faces, direction is any vector), or\n  {\"type\": \"pressure\", \"faces\": [\"top\"], \"value_mpa\": 0.1}\n    (positive presses on the face, negative pulls).\ntemperatures: list of {\"faces\": [\"-X\"], \"temperature_c\": 100}.\ninitial_temperature_c: start and reference temperature (default 20 °C).\nmesh_size_mm: largest element edge; about a third of the thinnest wall or less gives\nusable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that\nwould give more than about 2 million elements (part volume / size^3 x 6) is refused.\npart: the object's Name or Label; refused if it matches more than one object.\nReturns every face used, with the selector or name that chose it, its centre,\nnormal and area, plus the material values and units.",
+   "description": "Set up a CalculiX analysis of one solid part. Units: mm, N, MPa, °C, W, Hz.\nReplaces an earlier analysis with the same name. Needs CalculiX and Gmsh (doctor).\n\nanalysis_type and what it needs:\n  \"static\"         fixed_faces + loads -> stress, displacement, reactions, safety factor\n  \"modal\"          fixed_faces (no loads) -> first `modes` natural frequencies\n  \"thermal_steady\" temperatures (no fixed_faces, no loads) -> temperature field and\n                   heat flow at each fixed-temperature face; other faces are insulated\n  \"thermomechanical\" supports + temperatures (+ optional loads) -> thermal stress and\n                   expansion; the part starts stress-free at initial_temperature_c.\n                   For a uniform temperature change give every face that temperature.\n  \"buckling\"       supports + loads -> first `modes` buckling load factors; factor x\n                   applied load = ideal elastic buckling load (use 1 N to read it directly)\n  \"thermal_transient\" temperatures + time_end_s + time_step_s -> temperatures over time;\n                   the part starts at initial_temperature_c, the face temperatures\n                   switch on at time 0, other faces are insulated. At most 500 steps.\n                   Accuracy over time is first order: the error shrinks with the\n                   step. If early values matter, run again with half the step and\n                   compare.\nInputs a type does not use are refused, so nothing is silently ignored.\nSupports are fixed_faces and/or sliding_faces (static, modal, thermomechanical).\n\nmaterial: one of steel (S235), aluminium (6061-T6), PETG, PLA; others are refused.\nThe reply lists the values used.\nFaces: each list takes face selectors or face names, mixed if needed. Selectors\n(\"top\", \"bottom\", \"+X\" ... \"-Z\", \"largest planar face\", \"bore\",\n\"cylindrical faces radius 4\"; see list_faces) are found from the geometry, so they\npick the same faces however FreeCAD numbers them; names like \"Face1\" are taken as\ngiven. A selector that matches nothing, or ties, is refused with the candidates.\nfixed_faces: faces held completely still, e.g. [\"bottom\"] or [\"Face1\"]. This also\nblocks thermal expansion within the face.\nsliding_faces: flat faces facing along x, y or z that may slide in their own plane\nbut not move along their normal (a symmetry plane or a frictionless wall). Three of\nthem facing x, y and z hold a part without restraining its thermal expansion.\nloads: list of\n  {\"type\": \"force\", \"faces\": [\"+X\"], \"value_n\": 100, \"direction\": [0, 0, -1]}\n    (total force in N spread over the faces, direction is any vector), or\n  {\"type\": \"pressure\", \"faces\": [\"top\"], \"value_mpa\": 0.1}\n    (positive presses on the face, negative pulls).\ntemperatures: list of {\"faces\": [\"-X\"], \"temperature_c\": 100}.\ninitial_temperature_c: start and reference temperature (20 °C if not given; then it is\nlisted as a default in fea_results' assumptions).\nmesh_size_mm: largest element edge; about a third of the thinnest wall or less gives\nusable results (3 mm for a 10 mm bar). Required, at least 0.05 mm; a size that\nwould give more than about 2 million elements (part volume / size^3 x 6) is refused.\npart: the object's Name or Label; refused if it matches more than one object.\nReturns every face used, with the selector or name that chose it, its centre,\nnormal and area, plus the material values and units.",
    "inputSchema": {
     "properties": {
      "part": {
@@ -1295,9 +1333,16 @@
       "title": "Temperatures"
      },
      "initial_temperature_c": {
-      "default": 20.0,
-      "title": "Initial Temperature C",
-      "type": "number"
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Initial Temperature C"
      },
      "sliding_faces": {
       "anyOf": [
