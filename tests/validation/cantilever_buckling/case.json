@@ -1,0 +1,34 @@
+{
+ "title": "Cantilever column, buckling",
+ "description": "Steel bar 200 x 20 x 20 mm, end x = 0 fixed, 1000 N axial compression (-x) on the free end. Critical load = load factor x 1000 N.",
+ "box_mm": [200, 20, 20],
+ "material": "steel",
+ "material_values": {"E_mpa": 210000, "nu": 0.3},
+ "fea_setup": {
+  "analysis_type": "buckling",
+  "fixed_faces": ["-X"],
+  "loads": [{"type": "force", "faces": ["+X"], "value_n": 1000, "direction": [-1, 0, 0]}],
+  "modes": 2,
+  "mesh_size_mm": 4
+ },
+ "quantities": [
+  {
+   "id": "critical_load_mode1_n",
+   "label": "Euler buckling load, mode 1",
+   "unit": "N",
+   "formula": "pi^2 E I / (4 L^2) (fixed-free column, effective length 2 L)",
+   "citation": "S. P. Timoshenko, J. M. Gere, Theory of Elastic Stability, 2nd ed., McGraw-Hill 1961, Section 2.1 (column fixed at the base, free at the top)",
+   "tolerance_pct": 5,
+   "tolerance_reason": "Euler theory leaves out shear deformation (small at slenderness 69), and the end load is a uniform traction, not a point force at the centroid."
+  },
+  {
+   "id": "critical_load_mode2_n",
+   "label": "Euler buckling load, mode 2 (other direction)",
+   "unit": "N",
+   "formula": "as mode 1 (square section)",
+   "citation": "S. P. Timoshenko, J. M. Gere, Theory of Elastic Stability, 2nd ed., McGraw-Hill 1961, Section 2.1",
+   "tolerance_pct": 5,
+   "tolerance_reason": "As mode 1."
+  }
+ ]
+}

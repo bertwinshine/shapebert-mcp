@@ -1,0 +1,34 @@
+{
+ "title": "Bar in tension",
+ "description": "Steel bar 100 x 20 x 10 mm, 20 kN along +x on the end x = 100. The faces x = 0, y = 0 and z = 0 are sliding supports (symmetry planes): they stop rigid-body motion but leave the lateral (Poisson) contraction free, so the stress is uniform right up to the support.",
+ "box_mm": [100, 20, 10],
+ "material": "steel",
+ "material_values": {"E_mpa": 210000, "nu": 0.3},
+ "fea_setup": {
+  "analysis_type": "static",
+  "sliding_faces": ["-X", "-Y", "-Z"],
+  "loads": [{"type": "force", "faces": ["+X"], "value_n": 20000, "direction": [1, 0, 0]}],
+  "mesh_size_mm": 3
+ },
+ "probes": [[50, 10, 5], [100, 10, 5]],
+ "quantities": [
+  {
+   "id": "axial_stress_mpa",
+   "label": "Axial stress at mid-length",
+   "unit": "MPa",
+   "formula": "F / A",
+   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Chapter 1, normal stress and strain",
+   "tolerance_pct": 2,
+   "tolerance_reason": "With sliding supports the uniform stress state is exact for any mesh, so a larger error means a wrong area, load or support."
+  },
+  {
+   "id": "elongation_mm",
+   "label": "Elongation (x movement of the loaded end)",
+   "unit": "mm",
+   "formula": "F L / (E A)",
+   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Section 2.2, changes in lengths of axially loaded members",
+   "tolerance_pct": 2,
+   "tolerance_reason": "A linear displacement field is exact for quadratic elements; the band catches setup errors."
+  }
+ ]
+}

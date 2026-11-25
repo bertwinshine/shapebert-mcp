@@ -1,0 +1,12 @@
+{
+ "environments": {
+  "FreeCAD 1.1.3, CalculiX 2.22, Gmsh 4.15.0, Windows": {
+   "frozen": "2026-11-25",
+   "reason": "First accepted results: all six cases within tolerance on the first run",
+   "values": {
+    "elongation_mm": 0.12,
+    "max_von_mises_mpa": 0.0
+   }
+  }
+ }
+}
