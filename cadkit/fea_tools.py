@@ -498,30 +498,34 @@ def _program_version(binary):
     return words[0] if words else "unknown"
 
 
-def fea_convergence(name, work_dir, threads=1, factor=1.5, meshes=3):
+def fea_convergence(name, work_dir, threads=1, factor=1.5, meshes=3, band_mesh_sizes=2):
     """Solve at `meshes` mesh sizes, each `factor` times finer, ending at the setup's size.
 
-    The results of the finest (the setup's) mesh stay loaded. If a run fails, all
-    results are removed, so none from a coarser mesh can pass for the setup's."""
+    Static and thermomechanical runs also follow the peak von Mises stress outside the
+    flagged zones. Those zones keep the width for the coarsest mesh, so every mesh is
+    compared over the same region. The results of the finest (the setup's) mesh stay
+    loaded. If a run fails, all results are removed, so none from a coarser mesh can
+    pass for the setup's."""
     from femresult.resulttools import purge_results
 
     analysis = _fea_analysis(name)
-    _, mesh = _solver_and_mesh(analysis, name)
+    solver, mesh = _solver_and_mesh(analysis, name)
     finest = mesh.CharacteristicLengthMax.Value
+    stress = _analysis_kind(solver) in STRESS_KINDS
+    band = band_mesh_sizes * finest * factor ** (meshes - 1)
+    spots = _singular_spots(analysis, band)[0] if stress else []
     _store(analysis, "ShapeBertConvergence", None)
     runs, finished = [], False
     try:
         for k in range(meshes - 1, -1, -1):
             mesh.CharacteristicLengthMax = f"{finest * factor**k} mm"
             run = fea_run(name, work_dir, threads)
-            quantity, value = _key_result(analysis)
             runs.append(
                 {
                     "mesh_size_mm": run["mesh_size_mm"],
                     "nodes": run["nodes"],
                     "elements": run["elements"],
-                    "quantity": quantity,
-                    "value": value,
+                    "values": _key_results(analysis, spots, band),
                     "solve_s": run["solve_s"],
                 }
             )
@@ -530,28 +534,49 @@ def fea_convergence(name, work_dir, threads=1, factor=1.5, meshes=3):
         mesh.CharacteristicLengthMax = f"{finest} mm"
         if not finished:
             purge_results(analysis)
-    _store(analysis, "ShapeBertConvergence", runs)
-    return {"analysis": name, "runs": runs}
+    record = {"runs": runs, "excluded_within_mm": _r(band, 3) if stress else None}
+    _store(analysis, "ShapeBertConvergence", record)
+    return {"analysis": name, **record}
 
 
-def _key_result(analysis):
-    """(name, unrounded value) of the result fea_convergence follows."""
+STRESS_KINDS = ("static", "thermomechanical")
+
+
+def _analysis_kind(solver):
+    if solver.AnalysisType == "frequency":
+        return "modal"
+    if solver.AnalysisType == "buckling":
+        return "buckling"
+    if solver.AnalysisType != "thermomech":
+        return "static"
+    if solver.ThermoMechType != "pure heat transfer":
+        return "thermomechanical"
+    return "thermal_steady" if solver.ThermoMechSteadyState else "thermal_transient"
+
+
+def _key_results(analysis, spots, band):
+    """{name: unrounded value} of the results fea_convergence follows."""
     solver = _members(analysis, base="Fem::FemSolverObjectPython")[0]
     results = _members(analysis, base="Fem::FemResultObject")
-    if solver.AnalysisType == "frequency":
-        return "first_frequency_hz", min(r.EigenmodeFrequency for r in results)
-    if solver.AnalysisType == "buckling":
+    kind = _analysis_kind(solver)
+    if kind == "modal":
+        return {"first_frequency_hz": min(r.EigenmodeFrequency for r in results)}
+    if kind == "buckling":
         positive = [f for f in _buckling_factors(analysis) if f > 0]
         if not positive:
             raise RuntimeError("CalculiX found no positive buckling factor")
-        return "lowest_load_factor", min(positive)
-    if solver.AnalysisType == "thermomech" and solver.ThermoMechType == "pure heat transfer":
+        return {"lowest_load_factor": min(positive)}
+    if kind not in STRESS_KINDS:
         flows = _raw_heat_flows(analysis)
         if not flows:
             raise RuntimeError("CalculiX printed no heat flows")
-        return "largest_heat_flow_w", max(abs(q) for q in flows.values())
+        return {"largest_heat_flow_w": max(abs(q) for q in flows.values())}
     last = max(results, key=lambda r: r.Time)
-    return "max_displacement_mm", max(last.DisplacementLengths)
+    away = _scan_peak(last, spots, band)[1]
+    return {
+        "max_displacement_mm": max(last.DisplacementLengths),
+        "max_von_mises_away_mpa": away[0] if away else None,
+    }
 
 
 def _run_ccx(ccx, inp_file, threads):
@@ -815,8 +840,10 @@ def fea_results(name, probes=None, band_mesh_sizes=2):
         "convergence": _stored(analysis, "ShapeBertConvergence"),
         "ccx": out["ccx"],
     }
-    if out["analysis_type"] in ("static", "thermomechanical"):
-        record["peak_stress"] = _check_singularities(analysis, out, band_mesh_sizes * _mesh_size(analysis))
+    if out["analysis_type"] in STRESS_KINDS:
+        band = band_mesh_sizes * _mesh_size(analysis)
+        spots, record["flagged_loads"] = _singular_spots(analysis, band)
+        record["peak_stress"] = _check_singularities(analysis, out, band, spots)
     out["record"] = record
     return out
 
@@ -825,27 +852,20 @@ def fea_results(name, probes=None, band_mesh_sizes=2):
 MAX_SPOT_CHECKS = 20000
 
 
-def _check_singularities(analysis, out, band):
-    """Is the peak stress next to a fixed face or sharp inside edge? Adds the peak away
-    from them to `out` and flags probes that read a node next to one."""
+def _check_singularities(analysis, out, band, spots):
+    """Is the peak stress next to a singular spot? Adds the peak away from them to `out`
+    and flags probes that read a node next to one."""
     res = max(_members(analysis, base="Fem::FemResultObject"), key=lambda r: r.Time)
-    spots = _singular_spots(analysis)
-    nodes, numbers = res.Mesh.FemMesh.Nodes, list(res.NodeNumbers)
-    vm = list(res.vonMises)
-    order = sorted(range(len(vm)), key=vm.__getitem__, reverse=True)
-    peak = {"max_von_mises_mpa": _r(vm[order[0]], 2), "band_mm": _r(band, 3), "near": None, "away": None}
-    for n, i in enumerate(order[:MAX_SPOT_CHECKS]):
-        spot = _nearest_spot(spots, nodes[numbers[i]])
-        if spot is None or spot["distance_mm"] > band:
-            peak["away"] = {"max_von_mises_mpa": _r(vm[i], 2), "at_mm": _vec(nodes[numbers[i]])}
-            break
-        if n == 0:
-            peak["near"] = spot
-    if peak["away"]:
-        away = peak["away"]["max_von_mises_mpa"]
-        out["max_von_mises_away_from_singularities_mpa"] = away
-        out["max_von_mises_away_from_singularities_at_mm"] = peak["away"]["at_mm"]
-        out["safety_factor_away_from_singularities"] = _r(out["yield_mpa"] / away, 2) if away > 0 else None
+    near, away = _scan_peak(res, spots, band)
+    peak = {"max_von_mises_mpa": _r(max(res.vonMises), 2), "band_mm": _r(band, 3), "near": near, "away": None}
+    if away:
+        stress, at = _r(away[0], 2), _vec(away[1])
+        peak["away"] = {"max_von_mises_mpa": stress, "at_mm": at}
+        out["max_von_mises_away_from_singularities_mpa"] = stress
+        out["max_von_mises_away_from_singularities_at_mm"] = at
+        out["safety_factor_away_from_singularities"] = (
+            _r(out["yield_mpa"] / stress, 2) if stress > 0 else None
+        )
     for row in out.get("probes", []):
         spot = _nearest_spot(spots, App.Vector(*row["node_at_mm"]))
         if spot and spot["distance_mm"] <= band:
@@ -853,8 +873,26 @@ def _check_singularities(analysis, out, band):
     return peak
 
 
-def _singular_spots(analysis):
-    """Where linear-elastic stress has no finite limit: fixed faces and sharp inside edges."""
+def _scan_peak(res, spots, band):
+    """(spot next to the highest-stressed node or None, (stress, position) of the
+    highest-stressed node farther than `band` from every spot, or None)."""
+    nodes, numbers = res.Mesh.FemMesh.Nodes, list(res.NodeNumbers)
+    vm = list(res.vonMises)
+    order = sorted(range(len(vm)), key=vm.__getitem__, reverse=True)
+    near = None
+    for n, i in enumerate(order[:MAX_SPOT_CHECKS]):
+        spot = _nearest_spot(spots, nodes[numbers[i]])
+        if spot is None or spot["distance_mm"] > band:
+            return near, (vm[i], nodes[numbers[i]])
+        if n == 0:
+            near = spot
+    return near, None
+
+
+def _singular_spots(analysis, band):
+    """Where linear-elastic stress has no finite limit: fixed faces, sharp inside edges
+    and concentrated loads (on a vertex, an edge, or a face smaller than band^2).
+    Returns (spots, flagged loads)."""
     part = _members(analysis, base="Fem::FemMeshObject")[0].Shape
     spots = [
         ("fixed face", obj.Shape.getElement(sub))
@@ -862,12 +900,34 @@ def _singular_spots(analysis):
         for obj, subs in con.References
         for sub in subs
     ]
+    flagged = []
+    loads = _members(analysis, type_id="Fem::ConstraintForce") + _members(
+        analysis, type_id="Fem::ConstraintPressure"
+    )
+    for con in loads:
+        for obj, subs in con.References:
+            for sub in subs:
+                element = obj.Shape.getElement(sub)
+                kind = _concentrated(sub, element, band)
+                if kind:
+                    spots.append((kind, element))
+                    area = _r(element.Area, 3) if sub.startswith("Face") else None
+                    flagged.append({"load": con.Name, "element": sub, "kind": kind, "area_mm2": area})
     sel = _selectors()
     try:
         edges = sel.resolve_edges(part.Shape, ["concave edges"])
     except sel.SelectorError:
         edges = []
-    return spots + [("sharp inside edge", part.Shape.Edges[i - 1]) for i in edges]
+    spots += [("sharp inside edge", part.Shape.Edges[i - 1]) for i in edges]
+    return spots, flagged
+
+
+def _concentrated(sub, element, band):
+    if sub.startswith("Vertex"):
+        return "load on a vertex"
+    if sub.startswith("Edge"):
+        return "load on an edge"
+    return "small loaded face" if element.Area < band**2 else None
 
 
 def _nearest_spot(spots, point):
@@ -885,25 +945,19 @@ def _summary(analysis, name, probes):
     mat = _members(analysis, base="App::MaterialObjectPython")[0].Material
     solver = _members(analysis, base="Fem::FemSolverObjectPython")[0]
     ccx = _ccx_info(solver)
-    if solver.AnalysisType == "frequency":
+    kind = _analysis_kind(solver)
+    if kind == "modal":
         return {"analysis": name, **_modal_results(analysis, results, mat), "ccx": ccx}
     results = sorted(results, key=lambda r: r.Time)
     res = results[-1]
-    if solver.AnalysisType == "buckling":
+    if kind == "buckling":
         return {
             "analysis": name,
             "analysis_type": "buckling",
             **_buckling_results(analysis, res, mat),
             "ccx": ccx,
         }
-    if solver.AnalysisType != "thermomech":
-        kind, summary = "static", _static_results
-    elif solver.ThermoMechType != "pure heat transfer":
-        kind, summary = "thermomechanical", _thermomech_results
-    elif solver.ThermoMechSteadyState:
-        kind, summary = "thermal_steady", _thermal_results
-    else:
-        kind, summary = "thermal_transient", _thermal_results
+    summary = {"static": _static_results, "thermomechanical": _thermomech_results}.get(kind, _thermal_results)
     out = {"analysis": name, "analysis_type": kind, **summary(analysis, res, mat), "ccx": ccx}
     if kind == "thermal_transient":
         out["time_s"] = _r(res.Time, 3)

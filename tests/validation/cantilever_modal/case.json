@@ -16,18 +16,18 @@
    "label": "First bending frequency, mode 1",
    "unit": "Hz",
    "formula": "(lambda1^2 / (2 pi)) sqrt(E I / (rho A L^4)), lambda1 = first root of cos(x) cosh(x) = -1 (1.8751)",
-   "citation": "R. D. Blevins, Formulas for Natural Frequency and Mode Shape, Van Nostrand Reinhold 1979, Table 8-1 (single-span beams, clamped-free)",
+   "citation": "Timoshenko, Young & Weaver, Vibration Problems in Engineering, 4th ed., Wiley 1974, Section 5.3 (beta1 L = 1.8751)",
    "tolerance_pct": 3,
-   "tolerance_reason": "Euler-Bernoulli theory leaves out shear deformation and rotary inertia, which lower the real frequency by about 1 % at L/h = 10."
+   "tolerance_reason": "Euler-Bernoulli theory ignores shear and rotary inertia, so 3D FEA comes out slightly lower (seen: -0.28 %)."
   },
   {
    "id": "mode2_hz",
    "label": "First bending frequency, mode 2 (other direction)",
    "unit": "Hz",
    "formula": "as mode 1 (square section: I is the same about y and z)",
-   "citation": "R. D. Blevins, Formulas for Natural Frequency and Mode Shape, Van Nostrand Reinhold 1979, Table 8-1 (single-span beams, clamped-free)",
+   "citation": "Timoshenko, Young & Weaver, Vibration Problems in Engineering, 4th ed., Wiley 1974, Section 5.3 (beta1 L = 1.8751)",
    "tolerance_pct": 3,
-   "tolerance_reason": "As mode 1."
+   "tolerance_reason": "Euler-Bernoulli theory ignores shear and rotary inertia, so 3D FEA comes out slightly lower (seen: -0.28 %)."
   }
  ]
 }

@@ -31,7 +31,16 @@ from cadkit import (  # noqa: E402
 )
 from cadkit import knowledge as kb  # noqa: E402
 from cadkit import requirements as reqs  # noqa: E402
-from cadkit.calculators import boat, fasteners, flanges, gears, shafts, sheet_metal, weldments  # noqa: E402
+from cadkit.calculators import (  # noqa: E402
+    boat,
+    fasteners,
+    flanges,
+    gears,
+    hand_checks,
+    shafts,
+    sheet_metal,
+    weldments,
+)
 
 INSTALL_MACRO = HERE / "install_autostart.FCMacro"
 FREECAD_HOST = os.environ.get("FREECAD_MCP_HOST", "127.0.0.1")
@@ -135,6 +144,7 @@ READ_ONLY_TOOLS = {
     "calc_flanges",
     "calc_fasteners",
     "calc_shafts",
+    "calc_hand_check",
     "match_domain",
     "list_knowledge",
     "read_knowledge",
@@ -1321,10 +1331,14 @@ def fea_run(name: str = "FEA", timeout_s: float = 600) -> str:
 def fea_convergence(name: str = "FEA", timeout_s: float = 900) -> str:
     """Mesh convergence check of a fea_setup analysis: solves it at three mesh sizes,
     each 1.5 x finer, ending at the setup's mesh_size_mm (h): 2.25 h, 1.5 h, h. It
-    follows one key result: max displacement (static, thermomechanical), first natural
-    frequency (modal), lowest load factor (buckling) or the largest heat flow
-    (thermal). converged is true when the last change is under 2 %; otherwise rerun
-    fea_setup with a smaller mesh_size_mm and check again. The coarser meshes are
+    follows these results: static and thermomechanical, max displacement and the max
+    von Mises stress outside the flagged zones (within excluded_within_mm = 2 x the
+    coarsest mesh size of a fixed face, sharp inside edge or concentrated load, the same
+    zone for all three meshes); modal, the first natural frequency; buckling, the lowest
+    load factor; thermal, the largest heat flow. A result has converged when its last
+    change is under 2 %; converged_quantities and not_converged name them, and
+    converged is true only when all have. Otherwise rerun fea_setup with a smaller
+    mesh_size_mm and check again. The coarser meshes are
     cheap, so it takes about 1.4 x as long as one fea_run; a run longer than timeout_s
     returns still_running and a job_id for get_job_result. The results of mesh h stay
     loaded and fea_results shows the verdict in its assumptions block. Run it before
@@ -1345,11 +1359,12 @@ def fea_convergence(name: str = "FEA", timeout_s: float = 900) -> str:
         threads=threads,
         factor=fea.REFINE_FACTOR,
         meshes=fea.CONVERGENCE_MESHES,
+        band_mesh_sizes=fea.SINGULARITY_BAND_MESH_SIZES,
     )
     if out.get("still_running"):
         out["advice"] = f"Call get_job_result(job_id={out['job_id']!r}) until it finishes, then fea_results."
     elif out.get("ok") is not False:
-        summary = fea.convergence_summary(out["runs"], None)
+        summary = fea.convergence_summary(out, None)
         del summary["applies_to_this_mesh"]  # always this run's own mesh here
         out = {"analysis": out["analysis"], **summary}
     return _json(out)
@@ -1361,9 +1376,10 @@ def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> s
     Static: max von Mises stress and where, max displacement and where, the reaction
     force sum at the fixed faces (equilibrium_ok: it balances the applied loads),
     the mesh size and the safety factor against yield. Also the peak von Mises stress
-    away from singular spots (more than 2 mesh sizes from fixed faces and sharp inside
-    edges) with its safety factor: report that one when the overall peak sits at such
-    a spot.
+    away from singular spots (more than 2 mesh sizes from fixed faces, sharp inside
+    edges and concentrated loads: a load on a vertex, an edge or a face smaller than
+    (2 x mesh size)^2) with its safety factor: report that one when the overall peak
+    sits at such a spot.
     Modal: each mode's natural frequency, its peak motion direction and place, and the
     part mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).
     Thermal: min/max temperature and where, heat flow into the part at each
@@ -1381,8 +1397,9 @@ def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> s
     node and element count and mesher; material values used, each with its source;
     every support, load and temperature with selector, face, centre, normal and value;
     units; CalculiX version, threads and mesh/solve times; the mesh convergence check;
-    and `warnings` (first-order elements, peak stress at a singularity, convergence
-    not checked or not reached, defaults used). Show that block with every result.
+    and `warnings` (first-order elements, concentrated loads, peak stress at a
+    singularity, convergence not checked or not reached, defaults used). Show that
+    block with every result.
     Also a `note` on the limits of this simplified linear check, and `ccx`: the
     CalculiX binary, version and thread count that produced the results."""
     try:
@@ -1447,6 +1464,31 @@ def calc_shafts(calc: str, args: dict) -> str:
     bearing_life(c_kn, p_kn, rpm, ball=True, required_hours) -> L10, L10h, C required
     equivalent_load(fr_kn, fa_kn, x, y, e)"""
     return _call_calc(shafts, calc, args)
+
+
+@tool()
+def calc_hand_check(case: str, inputs: dict) -> str:
+    """Closed-form estimate to compare an FEA result with (domain: fea-mechanics).
+    Units: mm, N, MPa, kg/m^3, W/(m K), K, °C. case and inputs =
+    axial_bar(force_n, area_mm2, length_mm, E_mpa) -> stress, elongation
+    cantilever(force_n, length_mm, width_mm, height_mm, E_mpa, nu=0.3) -> tip deflection
+        from bending and from shear (k = 5/6), root bending stress; load across height_mm
+    euler_column(length_mm, E_mpa, width_mm, height_mm, end_condition="fixed-free",
+        nu=0.3, yield_mpa=None) -> critical load, with the shear correction too;
+        end_condition fixed-free (K 2), pinned-pinned (1), fixed-pinned (0.7), fixed-fixed (0.5)
+    thin_cylinder(pressure_mpa, mean_radius_mm, thickness_mm) -> hoop and axial stress
+    thick_cylinder(inner_radius_mm, outer_radius_mm, inner_pressure_mpa,
+        outer_pressure_mpa=0) -> Lame hoop, radial and closed-end axial stress
+    kirsch_hole(remote_stress_mpa, hole_diameter_mm=None, plate_width_mm=None) -> Kt 3 peak
+    beam_frequency(length_mm, width_mm, height_mm, E_mpa, density_kg_m3,
+        supports="clamped-free", mode=1) -> natural frequency in Hz; supports
+        clamped-free, pinned-pinned, clamped-clamped, free-free
+    plane_wall(k_w_mk, area_mm2, thickness_mm, t_hot_c, t_cold_c) -> heat flow, resistance
+    thermal_expansion(alpha_1_k, delta_t_k, length_mm, E_mpa=None) -> free elongation and
+        the fully restrained stress
+    Each reply gives results, the formula, its assumptions, how 3D FEA usually differs,
+    validity checks (pass/fail) and the source."""
+    return _call_calc(hand_checks, case, inputs)
 
 
 @tool(data=KNOWLEDGE_DATA)

@@ -37,8 +37,9 @@ result is frozen for the same FreeCAD, CalculiX, Gmsh and OS, that it has not mo
 by more than 1e-6 relative (in the digits `fea_results` reports). Meshes differ
 between platforms, so other environments only get the tolerance check. This file is
 written by `python tests/validation/report.py` with a running FreeCAD listener.
-The citations name the edition and the table or section; they have not yet been
-checked against the printed books.
+Citations marked "edition/section to be checked" still need their edition or
+section confirmed against the book. The background to each formula, and how 3D FEA
+differs from it, is in `knowledge/domains/fea-mechanics.md`.
 """
 
 
@@ -73,23 +74,29 @@ def _sources(all_cases) -> list[str]:
 
 
 def _convergence(conv) -> list[str]:
+    names = list(conv["quantities"])
     lines = [
         "",
         "## Mesh convergence (cantilever)",
         "",
-        f"`fea_convergence` on the cantilever, key result `{conv['quantity']}`; converged when the "
-        f"last change is under {conv['limit_pct']} %.",
+        f"`fea_convergence` on the cantilever follows {', '.join(f'`{n}`' for n in names)}; the stress "
+        f"leaves out everything within {conv['excluded_within_mm']} mm of the fixed end. A result has "
+        f"converged when its last change is under {conv['limit_pct']} %.",
         "",
-        "| Mesh | Nodes | Elements | Value | Change |",
-        "|---|---|---|---|---|",
+        "| Mesh | Nodes | Elements | " + " | ".join(f"{n} | Change" for n in names) + " |",
+        "|---|---|---|" + "---|---|" * len(names),
     ]
-    changes = [None, *conv["change_pct"]]
-    for run, change in zip(conv["runs"], changes, strict=True):
-        shown = "" if change is None else f"{change:.3f} %"
+    for i, run in enumerate(conv["runs"]):
+        cells = []
+        for n in names:
+            q = conv["quantities"][n]
+            change = q["change_pct"][i - 1] if i else None
+            cells += [_fmt(q["values"][i]), "" if change is None else f"{change:.3f} %"]
         lines.append(
-            f"| {run['mesh_size_mm']} mm | {run['nodes']} | {run['elements']} | {_fmt(run['value'])} | {shown} |"
+            f"| {run['mesh_size_mm']} mm | {run['nodes']} | {run['elements']} | " + " | ".join(cells) + " |"
         )
-    lines += ["", f"Converged: {'yes' if conv['converged'] else '**no**'}.", ""]
+    converged = ", ".join(conv["converged_quantities"]) or "none"
+    lines += ["", f"Converged: {converged}. Not converged: {', '.join(conv['not_converged']) or 'none'}.", ""]
     return lines
 
 
@@ -123,7 +130,9 @@ def main() -> int:
     cases.solve(server, cantilever)
     conv = cases.reply(server.fea_convergence(timeout_s=900))
     if not conv["converged"]:
-        failures.append("- Cantilever mesh convergence: not converged")
+        failures.append(
+            f"- Cantilever mesh convergence: not converged for {', '.join(conv['not_converged'])}"
+        )
     cases.fresh_document(server)
 
     text = [

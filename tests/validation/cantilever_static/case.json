@@ -17,18 +17,18 @@
    "label": "Tip deflection (centre of the free end, -z)",
    "unit": "mm",
    "formula": "F L^3 / (3 E I), I = b h^3 / 12",
-   "citation": "W. C. Young, R. G. Budynas, A. M. Sadegh, Roark's Formulas for Stress and Strain, 8th ed., McGraw-Hill 2012, Table 8.1 case 1a (cantilever, end load)",
+   "citation": "Timoshenko & Gere, Mechanics of Materials (beam deflection; with shear: d = PL^3/3EI + PL/(kGA), k = 5/6 for a rectangle), edition/section to be checked; Cowper, J. Appl. Mech. 33 (1966) 335-340 (shear coefficient)",
    "tolerance_pct": 3,
-   "tolerance_reason": "Euler-Bernoulli theory leaves out shear deformation, which adds F L / (k G A), about 0.8 % at L/h = 10; the rest covers the discretisation error of a 4 mm mesh."
+   "tolerance_reason": "Beam theory and 3D elasticity differ by a few tenths of a percent at L/h = 10; the rest of the band covers the mesh error."
   },
   {
    "id": "bending_stress_mid_mpa",
    "label": "Bending stress at mid-length, top face",
    "unit": "MPa",
    "formula": "M c / I with M = F (L - x) and c = h/2, at the x of the probe's node",
-   "citation": "J. M. Gere, B. J. Goodno, Mechanics of Materials, 8th ed., Cengage 2013, Chapter 5, normal stresses in beams (flexure formula)",
+   "citation": "Timoshenko & Gere, Mechanics of Materials (beam deflection; with shear: d = PL^3/3EI + PL/(kGA), k = 5/6 for a rectangle), edition/section to be checked; Cowper, J. Appl. Mech. 33 (1966) 335-340 (shear coefficient)",
    "tolerance_pct": 3,
-   "tolerance_reason": "Nodal stresses are extrapolated from the integration points, about 1 % off at this mesh; on the free top face the other stresses are zero, so von Mises equals the bending stress."
+   "tolerance_reason": "Beam theory and 3D elasticity differ by a few tenths of a percent at L/h = 10; the rest of the band covers the mesh error."
   }
  ]
 }

@@ -481,19 +481,44 @@ def test_peak_stress_next_to_a_fixed_face_is_a_singularity_with_the_value_away_f
     assert "stress_at_singularity" not in _codes(fea.assumptions("static", _record(peak_stress=clean)))
 
 
-def _runs(*values, sizes=(6.75, 4.5, 3.0)):
-    return [
-        {"mesh_size_mm": s, "quantity": "max_displacement_mm", "value": v}
-        for s, v in zip(sizes, values, strict=True)
-    ]
+def _conv(*values, stress=None, sizes=(6.75, 4.5, 3.0)):
+    """A stored convergence record; `stress` adds the peak away from flagged zones."""
+    runs = []
+    for i, (size, value) in enumerate(zip(sizes, values, strict=True)):
+        row = {"max_displacement_mm": value}
+        if stress:
+            row["max_von_mises_away_mpa"] = stress[i]
+        runs.append({"mesh_size_mm": size, "nodes": 100 * (i + 1), "elements": 50 * (i + 1), "values": row})
+    return {"runs": runs, "excluded_within_mm": 13.5 if stress else None}
 
 
 def test_convergence_compares_the_last_two_meshes_against_two_percent():
-    ok = fea.convergence_summary(_runs(1.10, 1.04, 1.03), 3.0)
-    assert ok["change_pct"] == [5.455, 0.962] and ok["converged"] and ok["applies_to_this_mesh"]
-    bad = fea.convergence_summary(_runs(1.0, 1.05, 1.08), 3.0)
-    assert not bad["converged"] and bad["change_pct"][-1] == pytest.approx(2.857, abs=1e-3)
-    assert not fea.convergence_summary(_runs(1.0, 1.0, 1.0), 2.0)["applies_to_this_mesh"]
+    ok = fea.convergence_summary(_conv(1.10, 1.04, 1.03), 3.0)
+    disp = ok["quantities"]["max_displacement_mm"]
+    assert disp["change_pct"] == [5.455, 0.962] and disp["converged"] and ok["converged"]
+    assert ok["applies_to_this_mesh"] and ok["converged_quantities"] == ["max_displacement_mm"]
+    assert "values" not in ok["runs"][0] and disp["values"] == [1.10, 1.04, 1.03]
+    bad = fea.convergence_summary(_conv(1.0, 1.05, 1.08), 3.0)
+    assert not bad["converged"] and bad["quantities"]["max_displacement_mm"]["change_pct"][
+        -1
+    ] == pytest.approx(2.857, abs=1e-3)
+    assert not fea.convergence_summary(_conv(1.0, 1.0, 1.0), 2.0)["applies_to_this_mesh"]
+
+
+def test_convergence_says_which_quantity_converged():
+    conv = fea.convergence_summary(_conv(1.10, 1.04, 1.03, stress=(120.0, 131.0, 140.0)), 3.0)
+    assert conv["converged_quantities"] == ["max_displacement_mm"]
+    assert conv["not_converged"] == ["max_von_mises_away_mpa"] and conv["converged"] is False
+    assert conv["excluded_within_mm"] == 13.5
+    block = fea.assumptions(
+        "static", _record(convergence=_conv(1.10, 1.04, 1.03, stress=(120.0, 131.0, 140.0)))
+    )
+    warning = next(w for w in block["warnings"] if w["code"] == "mesh_not_converged")
+    assert "max_von_mises_away_mpa changed 6.87 %" in warning["message"]
+    assert "Converged: max_displacement_mm" in warning["message"]
+    missing = fea.convergence_summary(_conv(1.10, 1.04, 1.03, stress=(120.0, 131.0, None)), 3.0)
+    assert missing["quantities"]["max_von_mises_away_mpa"]["change_pct"] == [9.167, None]
+    assert missing["not_converged"] == ["max_von_mises_away_mpa"]
 
 
 @pytest.mark.parametrize(
@@ -505,10 +530,54 @@ def test_convergence_compares_the_last_two_meshes_against_two_percent():
     ],
 )
 def test_block_reports_the_convergence_verdict(values, mesh_mm, code):
-    record = _record(convergence=_runs(*values))
+    record = _record(convergence=_conv(*values))
     record["run"]["mesh_size_mm"] = mesh_mm
     codes = [c for c in _codes(fea.assumptions("static", record)) if "converge" in c]
     assert codes == ([code] if code else [])
+
+
+@pytest.mark.parametrize(
+    "flagged, text",
+    [
+        (
+            {"load": "FEA_Force1", "element": "Face2", "kind": "small loaded face", "area_mm2": 16.0},
+            "Face2, a face of 16.0 mm^2, smaller than (2 x mesh size)^2 = 64.0 mm^2",
+        ),
+        (
+            {"load": "FEA_Force1", "element": "Edge3", "kind": "load on an edge", "area_mm2": None},
+            "Edge3 (load on an edge)",
+        ),
+        (
+            {"load": "FEA_Force2", "element": "Vertex1", "kind": "load on a vertex", "area_mm2": None},
+            "Vertex1",
+        ),
+    ],
+)
+def test_a_concentrated_load_is_flagged_as_a_singularity(flagged, text):
+    peak = {"max_von_mises_mpa": 90.0, "band_mm": 8.0, "near": None, "away": None}
+    block = fea.assumptions("static", _record(flagged_loads=[flagged], peak_stress=peak))
+    warning = block["warnings"][0]
+    assert warning["code"] == "load_singularity" and text in warning["message"]
+    assert "singular" in warning["message"] and "outside 8.0 mm" in warning["message"]
+
+
+def test_a_load_spread_over_a_large_face_is_not_flagged():
+    peak = {"max_von_mises_mpa": 90.0, "band_mm": 8.0, "near": None, "away": None}
+    assert "load_singularity" not in _codes(
+        fea.assumptions("static", _record(flagged_loads=[], peak_stress=peak))
+    )
+
+
+def test_peak_next_to_a_small_loaded_face_names_it():
+    peak = {
+        "max_von_mises_mpa": 400.0,
+        "band_mm": 8.0,
+        "near": {"kind": "small loaded face", "distance_mm": 0.5},
+        "away": {"max_von_mises_mpa": 150.0, "at_mm": [100, 10, 20]},
+    }
+    block = fea.assumptions("static", _record(peak_stress=peak))
+    message = next(w["message"] for w in block["warnings"] if w["code"] == "stress_at_singularity")
+    assert "from a small loaded face" in message and "150.0 MPa" in message
 
 
 def test_defaulted_initial_temperature_is_named_only_where_it_matters():
@@ -588,11 +657,16 @@ def test_fea_convergence_sends_the_refinement_and_summarises_the_runs(monkeypatc
 
     def fake_fc(func, **kw):
         calls.append((func, kw))
-        return {"analysis": "FEA", "runs": _runs(1.10, 1.04, 1.03)}
+        return {"analysis": "FEA", **_conv(1.10, 1.04, 1.03, stress=(120.0, 121.0, 121.5))}
 
     monkeypatch.setattr(server, "_fc", fake_fc)
     reply = json.loads(server.fea_convergence("FEA"))
     func, kw = calls[0]
     assert func == "fea_convergence" and kw["factor"] == 1.5 and kw["meshes"] == 3 and kw["threads"] == 1
-    assert reply["converged"] is True and reply["change_pct"] == [5.455, 0.962]
-    assert "applies_to_this_mesh" not in reply
+    assert kw["band_mesh_sizes"] == fea.SINGULARITY_BAND_MESH_SIZES
+    assert reply["converged"] is True and reply["converged_quantities"] == [
+        "max_displacement_mm",
+        "max_von_mises_away_mpa",
+    ]
+    assert reply["quantities"]["max_displacement_mm"]["change_pct"] == [5.455, 0.962]
+    assert reply["excluded_within_mm"] == 13.5 and "applies_to_this_mesh" not in reply

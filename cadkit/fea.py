@@ -162,18 +162,34 @@ def material_values(mat: dict, analysis_type: str) -> dict:
     return out
 
 
-def convergence_summary(runs: list[dict], current_mesh_mm: float | None) -> dict:
-    """Change of the key result from mesh to mesh, and whether the last change is small enough."""
-    values = [r["value"] for r in runs]
-    changes = [
-        None if a == 0 else abs(b - a) / abs(a) * 100 for a, b in zip(values, values[1:], strict=False)
-    ]
+def _change_pct(a, b):
+    if a is None or b is None or a == 0:
+        return None
+    return abs(b - a) / abs(a) * 100
+
+
+def convergence_summary(record: dict, current_mesh_mm: float | None) -> dict:
+    """Change of each followed result from mesh to mesh; a result has converged when its
+    last change is under the limit, the check when all of them have."""
+    runs = record["runs"]
+    quantities = {}
+    for name in runs[-1]["values"]:
+        values = [r["values"][name] for r in runs]
+        changes = [_change_pct(a, b) for a, b in zip(values, values[1:], strict=False)]
+        quantities[name] = {
+            "values": values,
+            "change_pct": [None if c is None else round(c, 3) for c in changes],
+            "converged": changes[-1] is not None and changes[-1] < CONVERGED_PCT,
+        }
+    converged = [name for name, q in quantities.items() if q["converged"]]
     return {
-        "quantity": runs[-1]["quantity"],
-        "runs": runs,
-        "change_pct": [None if c is None else round(c, 3) for c in changes],
+        "quantities": quantities,
+        "converged_quantities": converged,
+        "not_converged": [name for name in quantities if name not in converged],
+        "converged": len(converged) == len(quantities),
         "limit_pct": CONVERGED_PCT,
-        "converged": changes[-1] is not None and changes[-1] < CONVERGED_PCT,
+        "excluded_within_mm": record.get("excluded_within_mm"),
+        "runs": [{k: v for k, v in r.items() if k != "values"} for r in runs],
         # Both sizes come from fea_run with the same rounding.
         "applies_to_this_mesh": runs[-1]["mesh_size_mm"] == current_mesh_mm,
     }
@@ -236,14 +252,42 @@ def _convergence_warnings(conv: dict | None, mesh_mm) -> list[dict]:
             )
         ]
     if not conv["converged"]:
+        details = []
+        for name in conv["not_converged"]:
+            last = conv["quantities"][name]["change_pct"][-1]
+            details.append(
+                f"{name} changed {last} %" if last is not None else f"{name} has no value to compare"
+            )
         return [
             _warning(
                 "mesh_not_converged",
-                f"{conv['quantity']} changed {conv['change_pct'][-1]} % between the last two meshes "
-                f"(limit {CONVERGED_PCT} %): use a smaller mesh_size_mm and check again.",
+                f"Not converged between the last two meshes (limit {CONVERGED_PCT} %): "
+                f"{'; '.join(details)}. Converged: {', '.join(conv['converged_quantities']) or 'none'}. "
+                "Use a smaller mesh_size_mm and check again.",
             )
         ]
     return []
+
+
+def _load_warnings(flagged: list[dict], band_mm: float | None) -> list[dict]:
+    out = []
+    for load in flagged:
+        if load["kind"] == "small loaded face":
+            where = (
+                f"{load['element']}, a face of {load['area_mm2']} mm^2, smaller than "
+                f"(2 x mesh size)^2 = {round(band_mm**2, 3)} mm^2"
+            )
+        else:
+            where = f"{load['element']} ({load['kind']})"
+        out.append(
+            _warning(
+                "load_singularity",
+                f"{load['load']} acts on {where}: a concentrated load. The stress under it is "
+                "singular and rises as the mesh is refined. Read stress outside "
+                f"{band_mm} mm from it, or spread the load over the real contact area.",
+            )
+        )
+    return out
 
 
 def _singularity_warnings(peak: dict | None, probes: list[dict]) -> list[dict]:
@@ -308,8 +352,8 @@ def assumptions(analysis_type: str, record: dict) -> dict:
     mesh_mm = run["mesh_size_mm"]
     order, description = ELEMENT_TYPES.get(run["element_type"], (None, "unknown"))
     values = material_values(setup["material"], analysis_type)
-    conv_runs = record.get("convergence")
-    conv = convergence_summary(conv_runs, mesh_mm) if conv_runs else None
+    conv_record = record.get("convergence")
+    conv = convergence_summary(conv_record, mesh_mm) if conv_record else None
     ccx = record.get("ccx") or {}
     block = {
         "analysis_type": analysis_type,
@@ -354,6 +398,7 @@ def assumptions(analysis_type: str, record: dict) -> dict:
         block["time"] = {"end_s": setup.get("time_end_s"), "step_s": setup.get("time_step_s")}
     block["warnings"] = (
         _element_warnings(run["element_type"])
+        + _load_warnings(record.get("flagged_loads") or [], (record.get("peak_stress") or {}).get("band_mm"))
         + _singularity_warnings(record.get("peak_stress"), record.get("probes") or [])
         + _convergence_warnings(conv, mesh_mm)
         + _defaults_warning(values, setup, analysis_type)

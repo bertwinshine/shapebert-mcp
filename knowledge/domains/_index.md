@@ -13,6 +13,7 @@ words; if one domain matches, open its file. If several or none match, ask the u
 | Fasteners, holes and fits | bolt, screw, thread, tapped, tap drill, counterbore, countersink, clearance hole, bolt pattern, bolt hole, pitch circle, PCD, M3, M4, M5, M6, M8, M10, M12, M16, M20, dowel, fit, tolerance, press fit, H7, insert | fasteners-fits.md | complete |
 | Shafts, keys and bearings | shaft, axle, keyway, key, spline, bearing, ball bearing, roller bearing, circlip, retaining ring, journal, L10 | shafts-bearings.md | complete |
 | FDM 3D printing | 3D print, 3D printed, printable, FDM, FFF, PLA, PETG, ABS, ASA, TPU, filament, slicer, heat-set insert, print-in-place | fdm-3d-printing.md | complete |
+| FEA and mechanics hand checks | FEA, finite element, von Mises, stress analysis, deflection, natural frequency, buckling, modal analysis, thermal stress, heat conduction, mesh convergence, hand check, hand calculation | fea-mechanics.md | complete |
 
 ## Which tools go with which domain
 
@@ -25,6 +26,7 @@ words; if one domain matches, open its file. If several or none match, ask the u
 | fasteners-fits.md | `calc_fasteners` | `measure` (holes by diameter) |
 | shafts-bearings.md | `calc_shafts` | `measure` |
 | fdm-3d-printing.md | - | `check_printability(process='fdm')`, `measure` |
+| fea-mechanics.md | `calc_hand_check` | `fea_setup`, `fea_run`, `fea_results`, `fea_convergence` |
 
 Domains often combine: a gearbox = gears + shafts-bearings + fasteners-fits; a
 printed bracket = fdm-3d-printing + fasteners-fits. Load the main domain first,

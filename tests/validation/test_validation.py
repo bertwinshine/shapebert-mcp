@@ -142,13 +142,16 @@ def test_peak_stress_at_the_clamped_end_is_flagged_as_a_singularity(solved):
 
 @live
 def test_mesh_convergence_on_the_cantilever(solved):
-    """Solves at 9, 6 and 4 mm; the tip deflection settles well inside 2 %."""
+    """Solves at 9, 6 and 4 mm; the tip deflection and the peak stress outside the
+    18 mm zone at the fixed end both settle inside 2 %."""
     server = solved[0]
     cases.solve(server, CANTILEVER)
     conv = cases.reply(server.fea_convergence(timeout_s=900))
-    assert [r["mesh_size_mm"] for r in conv["runs"]] == [9, 6, 4]
-    assert conv["quantity"] == "max_displacement_mm" and conv["converged"] is True
-    assert len(conv["change_pct"]) == 2 and conv["change_pct"][-1] < 2
+    assert [r["mesh_size_mm"] for r in conv["runs"]] == [9, 6, 4] and conv["excluded_within_mm"] == 18
+    assert conv["converged_quantities"] == ["max_displacement_mm", "max_von_mises_away_mpa"]
+    assert conv["converged"] is True and conv["not_converged"] == []
+    for q in conv["quantities"].values():
+        assert len(q["change_pct"]) == 2 and q["change_pct"][-1] < 2
     block = cases.reply(server.fea_results())["assumptions"]
     assert block["convergence"]["applies_to_this_mesh"] is True
     assert "convergence_not_checked" not in {w["code"] for w in block["warnings"]}

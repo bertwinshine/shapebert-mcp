@@ -17,18 +17,18 @@
    "label": "Euler buckling load, mode 1",
    "unit": "N",
    "formula": "pi^2 E I / (4 L^2) (fixed-free column, effective length 2 L)",
-   "citation": "S. P. Timoshenko, J. M. Gere, Theory of Elastic Stability, 2nd ed., McGraw-Hill 1961, Section 2.1 (column fixed at the base, free at the top)",
+   "citation": "Timoshenko & Gere, Theory of Elastic Stability, 2nd ed., McGraw-Hill 1961, Section 2.1 (Euler), Section 2.17 (Engesser shear correction P = Pe / (1 + Pe/(kGA)))",
    "tolerance_pct": 5,
-   "tolerance_reason": "Euler theory leaves out shear deformation (small at slenderness 69), and the end load is a uniform traction, not a point force at the centroid."
+   "tolerance_reason": "The shear correction lowers P slightly (seen: -0.31 %); 5 % covers it and the mesh."
   },
   {
    "id": "critical_load_mode2_n",
    "label": "Euler buckling load, mode 2 (other direction)",
    "unit": "N",
    "formula": "as mode 1 (square section)",
-   "citation": "S. P. Timoshenko, J. M. Gere, Theory of Elastic Stability, 2nd ed., McGraw-Hill 1961, Section 2.1",
+   "citation": "Timoshenko & Gere, Theory of Elastic Stability, 2nd ed., McGraw-Hill 1961, Section 2.1 (Euler), Section 2.17 (Engesser shear correction P = Pe / (1 + Pe/(kGA)))",
    "tolerance_pct": 5,
-   "tolerance_reason": "As mode 1."
+   "tolerance_reason": "The shear correction lowers P slightly (seen: -0.31 %); 5 % covers it and the mesh."
   }
  ]
 }
