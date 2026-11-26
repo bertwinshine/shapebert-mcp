@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = ("knowledge-private/",)
 SKIP_SUFFIXES = {".fcstd", ".stl", ".png", ".jpg", ".jpeg", ".step", ".stp", ".3mf", ".pdf"}
+MAX_FILE_BYTES = 256 * 1024  # plugin file limit from docs/SECURITY_RULES.md
 
 # These files name the author on purpose: the copyright holder, the plugin's publisher and
 # the FreeCAD add-on's maintainer.
@@ -65,6 +66,12 @@ def main() -> int:
     patterns = BUILT_IN + local_patterns()
     hits = []
     for name in tracked_files():
+        if Path(name).suffix.lower() == ".fcstd":
+            hits.append(f"{name}: .FCStd files must not be tracked")
+            continue
+        path = ROOT / name
+        if path.is_file() and path.stat().st_size > MAX_FILE_BYTES:
+            hits.append(f"{name}: {path.stat().st_size} bytes, over the 256 KiB plugin limit")
         if Path(name).suffix.lower() in SKIP_SUFFIXES or name in {"ci/check_private.py", *NAMES_AUTHOR}:
             continue
         try:
@@ -80,7 +87,7 @@ def main() -> int:
                 hits.append(f"{name}:{number}: {line.strip()[:100]}")
     for hit in hits:
         print(hit)
-    print(f"{len(hits)} line(s) with possible personal data" if hits else "no personal data found")
+    print(f"{len(hits)} problem(s) found" if hits else "no personal data, no .FCStd, no oversized files")
     return 1 if hits else 0
 
 
