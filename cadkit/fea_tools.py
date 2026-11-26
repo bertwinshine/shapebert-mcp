@@ -702,6 +702,9 @@ def _heat_flows(analysis):
     return rows
 
 
+STRESS_COMPONENTS = ("xx", "yy", "zz", "xy", "xz", "yz")
+
+
 def _nearest_node(res, point):
     target = App.Vector(*point)
     nodes = res.Mesh.FemMesh.Nodes
@@ -717,6 +720,7 @@ def _probe(res, point, temperature, mechanics):
     if mechanics:
         row["displacement_mm"] = [_r(c, 5) for c in res.DisplacementVectors[i]]
         row["von_mises_mpa"] = _r(res.vonMises[i], 3)
+        row["stress_mpa"] = {c: _r(getattr(res, f"NodeStress{c.upper()}")[i], 3) for c in STRESS_COMPONENTS}
     return row
 
 

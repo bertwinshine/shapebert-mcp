@@ -47,7 +47,7 @@ jobs:
     # Live tests against real headless FreeCAD (conda-forge build).
     # Pinned so the runner image only changes when we bump it.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       matrix:
         freecad: ["1.1"]
@@ -97,7 +97,8 @@ jobs:
         run: cp -r /tmp/freecad_mcp_test_work/fea /tmp/fea_buckling_only || true
       - if: ${{ !cancelled() }}
         run: pytest -q tests/integration
-      # FEA against analytical answers; about half a minute. Frozen results are per
+      # FEA against analytical answers and published benchmarks; about four minutes on
+      # a desktop, the Kirsch plate's 1 mm mesh takes most of it. Frozen results are per
       # environment, so here only the tolerances are checked until a Linux one is frozen.
       - if: ${{ !cancelled() }}
         run: pytest -q -rs tests/validation
