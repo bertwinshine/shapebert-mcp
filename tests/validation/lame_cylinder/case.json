@@ -1,0 +1,48 @@
+{
+ "title": "Thick cylinder under internal pressure (Lame)",
+ "benchmark": true,
+ "description": "Steel tube, inner radius a = 50 mm, outer radius b = 2a = 100 mm, 20 mm long, 100 MPa inside. Quarter model: x = 0 and y = 0 are symmetry planes and the end z = 0 slides; the other end is free (open ends, no axial stress). Probes on the y = 0 plane, where the x displacement is the radial one and the y stress is the hoop stress.",
+ "description_check": "The description gives b = 2a but not a, the pressure or the end condition. a and the pressure only scale the answers. The end condition changes the radial displacement (open ends, plane strain or closed ends) but not the hoop stress; open ends were modelled because the Lame solution is then exact in 3D.",
+ "geometry": {"kind": "quarter_tube", "inner_radius_mm": 50, "outer_radius_mm": 100, "length_mm": 20},
+ "material": "steel",
+ "material_values": {"E_mpa": 210000, "nu": 0.3},
+ "fea_setup": {
+  "analysis_type": "static",
+  "sliding_faces": ["-X", "-Y", "bottom"],
+  "loads": [{"type": "pressure", "faces": ["bore"], "value_mpa": 100}],
+  "mesh_size_mm": 5
+ },
+ "probes": [[50, 0, 0], [100, 0, 0]],
+ "quantities": [
+  {
+   "id": "radial_displacement_inner_mm",
+   "label": "Radial displacement at the bore",
+   "unit": "mm",
+   "formula": "u(a) = ((1 - nu) A a + (1 + nu) B / a) / E, A = p a^2 / (b^2 - a^2), B = p a^2 b^2 / (b^2 - a^2)",
+   "published": "Lame solution",
+   "citation": "Timoshenko & Goodier, Theory of Elasticity, Section 28, edition to be checked",
+   "tolerance_pct": 1,
+   "tolerance_reason": "With open ends the Lame solution is exact in 3D (axial stress zero, axial strain uniform), and displacements converge fastest, so only the mesh error remains."
+  },
+  {
+   "id": "radial_displacement_outer_mm",
+   "label": "Radial displacement at the outside",
+   "unit": "mm",
+   "formula": "u(b) = ((1 - nu) A b + (1 + nu) B / b) / E",
+   "published": "Lame solution",
+   "citation": "Timoshenko & Goodier, Theory of Elasticity, Section 28, edition to be checked",
+   "tolerance_pct": 1,
+   "tolerance_reason": "With open ends the Lame solution is exact in 3D (axial stress zero, axial strain uniform), and displacements converge fastest, so only the mesh error remains."
+  },
+  {
+   "id": "hoop_stress_inner_mpa",
+   "label": "Hoop stress at the bore",
+   "unit": "MPa",
+   "formula": "A + B / a^2",
+   "published": "Lame solution",
+   "citation": "Timoshenko & Goodier, Theory of Elasticity, Section 28, edition to be checked",
+   "tolerance_pct": 2,
+   "tolerance_reason": "Exact solution in 3D; the band covers the mesh and CalculiX's extrapolation of stress from the integration points to the bore, where the stress gradient is steepest."
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+{
+ "environments": {
+  "FreeCAD 1.1.3, CalculiX 2.22, Gmsh 4.15.0, Windows": {
+   "frozen": "2026-11-26",
+   "reason": "First accepted benchmark results: NAFEMS LE1, Kirsch and Lame within tolerance on the first run",
+   "values": {
+    "hoop_stress_inner_mpa": 166.597,
+    "radial_displacement_inner_mm": 0.04682,
+    "radial_displacement_outer_mm": 0.03175
+   }
+  }
+ }
+}

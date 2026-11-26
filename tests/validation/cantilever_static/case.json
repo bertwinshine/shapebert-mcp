@@ -11,6 +11,7 @@
   "mesh_size_mm": 4
  },
  "probes": [[200, 10, 10], [100, 10, 20]],
+ "convergence": true,
  "quantities": [
   {
    "id": "tip_deflection_mm",

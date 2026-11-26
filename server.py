@@ -1390,7 +1390,8 @@ def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> s
     Buckling: load factor and critical load per mode; lowest_load_factor below ~1 means
     the applied load would buckle the ideal part (real parts buckle lower, see note).
     probes: points [x, y, z] in mm; returns the values at the nearest mesh node
-    (temperature, or displacement and von Mises), e.g. [[50, 5, 5]] for mid-length.
+    (temperature, or displacement, von Mises and stress_mpa: the components xx, yy, zz,
+    xy, xz, yz in the part's x, y, z axes), e.g. [[50, 5, 5]] for mid-length.
     That node can be up to one mesh size away; node_at_mm gives its position. A probe
     whose node is next to a fixed face or sharp inside edge gets near_singularity.
     Every reply has `assumptions`: analysis type; element type and order; mesh size,

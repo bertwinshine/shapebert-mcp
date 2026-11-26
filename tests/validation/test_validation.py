@@ -14,16 +14,59 @@ from conftest import LIVE_PORT, listener_up
 import shapebert_selectors as selectors
 
 CASES = cases.load_cases()
-CANTILEVER = next(c for c in CASES if c["id"] == "cantilever_static")
+MODELLED = cases.modelled(CASES)
+BY_ID = {c["id"]: c for c in CASES}
+CANTILEVER = BY_ID["cantilever_static"]
 
 
 def test_every_case_names_its_source_tolerance_and_reason():
-    assert len(CASES) == 6
+    assert len(CASES) == 10
     for case in CASES:
         assert set(cases.QUANTITIES[case["id"]]) == {q["id"] for q in case["quantities"]}, case["id"]
         for q in case["quantities"]:
             assert q["citation"] and q["formula"] and q["tolerance_reason"], (case["id"], q["id"])
             assert 0 < q["tolerance_pct"] <= 5
+            assert bool(case.get("benchmark")) == ("published" in q), (case["id"], q["id"])
+
+
+def test_a_case_the_tools_cannot_set_up_says_why_and_stays_listed():
+    assert [c["id"] for c in CASES if c not in MODELLED] == ["nafems_le10"]
+    le10 = BY_ID["nafems_le10"]
+    assert "sliding_faces" in le10["not_modelled"] and "fea_setup" not in le10
+    assert le10["description_check"] == "Boundary conditions to be checked against TNSB Rev. 3."
+
+
+def test_published_targets_and_closed_forms():
+    le1 = BY_ID["nafems_le1"]
+    assert [cases.QUANTITIES["nafems_le1"][q["id"]][1](le1, {}) for q in le1["quantities"]] == [92.7, 92.7]
+    assert cases.QUANTITIES["nafems_le10"]["sigma_yy_d_mpa"][1](BY_ID["nafems_le10"], {}) == -5.38
+    assert cases.mesh_sizes(le1) == [100, 500]
+    kirsch = BY_ID["kirsch_plate"]
+    assert cases.QUANTITIES["kirsch_plate"]["hole_edge_stress_mpa"][1](kirsch, {}) == pytest.approx(300)
+    geo = kirsch["geometry"]
+    assert 2 * geo["half_width_mm"] >= 20 * geo["hole_diameter_mm"]
+    # For b = 2a: u(a) = p a (5 + 3 nu) / (3 E), u(b) = 4 p a / (3 E), hoop at the bore = 5 p / 3.
+    lame = BY_ID["lame_cylinder"]
+    formulas = cases.QUANTITIES["lame_cylinder"]
+    p, a, e, nu = 100, 50, 210000, 0.3
+    assert formulas["radial_displacement_inner_mm"][1](lame, {}) == pytest.approx(
+        p * a * (5 + 3 * nu) / (3 * e)
+    )
+    assert formulas["radial_displacement_outer_mm"][1](lame, {}) == pytest.approx(4 * p * a / (3 * e))
+    assert formulas["hoop_stress_inner_mpa"][1](lame, {}) == pytest.approx(5 * p / 3)
+
+
+@pytest.mark.parametrize(
+    "case_id, quantity",
+    [(c, q) for c, qs in cases.HAND_CHECKS.items() for q in qs],
+    ids=lambda v: v,
+)
+def test_calc_hand_check_agrees_with_the_case_formula(case_id, quantity):
+    server = pytest.importorskip("server")
+    case = BY_ID[case_id]
+    hand = cases.hand_check(server, case, quantity)
+    # calc_hand_check rounds its results to 6 decimals.
+    assert hand["value"] == pytest.approx(cases.QUANTITIES[case_id][quantity][1](case, {}), rel=1e-6)
 
 
 def test_the_frequency_parameter_is_solved_not_copied():
@@ -74,11 +117,12 @@ def solved():
     if "not found" in (fem.get("calculix"), fem.get("gmsh")):
         pytest.skip("CalculiX or Gmsh not installed")
     out = {}
-    for case in CASES:
-        results = cases.solve(server, case)
+    for case in MODELLED:
+        runs = cases.solve_all(server, case)
+        results = runs[case["fea_setup"]["mesh_size_mm"]]
         out[case["id"]] = {
             "results": results,
-            "rows": cases.compare(case, results),
+            "rows": cases.compare(case, runs, server),
             "env": cases.environment(server, results),
         }
     yield server, out
@@ -89,7 +133,7 @@ def solved():
 
 @live
 @pytest.mark.parametrize(
-    "case_id, quantity", [(c["id"], q["id"]) for c in CASES for q in c["quantities"]], ids=lambda v: v
+    "case_id, quantity", [(c["id"], q["id"]) for c in MODELLED for q in c["quantities"]], ids=lambda v: v
 )
 def test_fea_matches_the_analytical_answer(solved, case_id, quantity):
     row = next(r for r in solved[1][case_id]["rows"] if r["id"] == quantity)
@@ -97,7 +141,7 @@ def test_fea_matches_the_analytical_answer(solved, case_id, quantity):
 
 
 @live
-@pytest.mark.parametrize("case_id", [c["id"] for c in CASES])
+@pytest.mark.parametrize("case_id", [c["id"] for c in MODELLED])
 def test_fea_result_has_not_moved_from_the_frozen_one(solved, case_id):
     run = solved[1][case_id]
     moved = cases.frozen_mismatches(case_id, run["env"], run["rows"])
@@ -111,16 +155,17 @@ def _canonical(face):
 
 
 @live
-@pytest.mark.parametrize("case", CASES, ids=lambda c: c["id"])
+@pytest.mark.parametrize("case", MODELLED, ids=lambda c: c["id"])
 def test_assumptions_block_shows_what_was_solved(solved, case):
-    block = solved[1][case["id"]]["results"]["assumptions"]
+    results = solved[1][case["id"]]["results"]
+    block = results["assumptions"]
     assert block["elements"] == {"type": "C3D10", "order": 2, "description": "10-node quadratic tetrahedra"}
     assert block["mesh"]["max_element_size_mm"] == case["fea_setup"]["mesh_size_mm"]
     assert block["mesh"]["nodes"] > 0 and block["mesh"]["elements"] > 0
     assert block["mesh"]["mesher"].startswith("Gmsh ") and block["solver"]["version"] != "unknown"
     used = {k: v["value"] for k, v in block["material"]["values"].items()}
     assert {k: used[k] for k in case["material_values"]} == case["material_values"]
-    setup = case["fea_setup"]
+    setup = results["fea_setup_used"]
     for kind in ("fixed", "sliding"):
         given = [_canonical(f) for f in setup.get(f"{kind}_faces", [])]
         assert [s["selector"] for s in block["supports"] if s["kind"] == kind] == given
@@ -155,3 +200,32 @@ def test_mesh_convergence_on_the_cantilever(solved):
     block = cases.reply(server.fea_results())["assumptions"]
     assert block["convergence"]["applies_to_this_mesh"] is True
     assert "convergence_not_checked" not in {w["code"] for w in block["warnings"]}
+
+
+@live
+def test_probes_return_stress_components_in_the_part_axes(solved):
+    bore, outside = solved[1]["lame_cylinder"]["results"]["probes"]
+    assert set(bore["stress_mpa"]) == {"xx", "yy", "zz", "xy", "xz", "yz"}
+    # On the y = 0 plane x is radial: -p at the bore, zero outside; open ends, so no axial stress.
+    assert bore["stress_mpa"]["xx"] == pytest.approx(-100, rel=0.02)
+    assert abs(outside["stress_mpa"]["xx"]) < 1 and abs(bore["stress_mpa"]["zz"]) < 1
+
+
+@live
+def test_the_hole_edge_is_not_taken_for_a_singularity(solved):
+    results = solved[1]["kirsch_plate"]["results"]
+    assert "stress_at_singularity" not in {w["code"] for w in results["assumptions"]["warnings"]}
+    assert results["max_von_mises_away_from_singularities_mpa"] == results["max_von_mises_mpa"]
+    x, y, _ = results["max_von_mises_at_mm"]
+    assert math.hypot(x, y) == pytest.approx(5, abs=0.01) and x == pytest.approx(0, abs=0.01)
+    assert "near_singularity" not in results["probes"][0]
+
+
+@live
+def test_mesh_convergence_on_the_plate_with_a_hole(solved):
+    """Solves at 2.25, 1.5 and 1 mm; the peak at the hole edge settles inside 2 %."""
+    server = solved[0]
+    cases.solve(server, BY_ID["kirsch_plate"])
+    conv = cases.reply(server.fea_convergence(timeout_s=900))
+    assert [r["mesh_size_mm"] for r in conv["runs"]] == [2.25, 1.5, 1]
+    assert conv["converged"] is True and conv["not_converged"] == []

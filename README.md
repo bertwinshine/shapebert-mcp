@@ -305,13 +305,20 @@ and Linux and the integration tests on headless FreeCAD 1.1.
 [docs/validation.md](docs/validation.md) compares the FEA tools with textbook answers
 for six cases: a cantilever (tip deflection and bending stress, natural frequency,
 Euler buckling), a bar in tension, a bar with steady heat conduction and a freely
-heated bar. Each case in `tests/validation/` holds its setup, the source of the
-formula, the tolerance and why, and the accepted FEA result. `pytest tests/validation`
-runs them against a listener (about 30 s): every value has to be within its tolerance,
-and on the FreeCAD, CalculiX and Gmsh versions a result was frozen with, it must not
-move by more than 1e-6 relative. `python tests/validation/report.py` writes the page again;
-with `--freeze "reason"` it also accepts the new results. Citations marked "edition/section
-to be checked" still need that detail confirmed against the book.
+heated bar. It also runs published benchmarks: NAFEMS LE1 (elliptic membrane, coarse
+and fine mesh), a plate with a hole in tension (Kirsch, Kt = 3) and a thick cylinder
+under internal pressure (Lame), each next to its `calc_hand_check` value where a
+closed form applies. NAFEMS LE10 is listed but not run: `fea_setup` cannot yet hold a
+curved face in x and y only, or an edge in z. Each case in `tests/validation/` holds its
+setup, the source of the formula or published value, the tolerance and why, and the
+accepted FEA result. `pytest tests/validation` runs them against a listener (about
+4 minutes): every value has to be within its tolerance, and on the FreeCAD, CalculiX
+and Gmsh versions a result was frozen with, it must not move by more than 1e-6
+relative. `python tests/validation/report.py` writes the page again; with
+`--freeze "reason"` it also accepts the new results (`--cases` limits that to some
+cases). Citations marked "edition/section to be checked" still need that detail
+confirmed against the book, and cases marked "description to be checked" say which
+detail of the setup was missing.
 
 ## Benchmark
 
