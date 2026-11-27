@@ -1,6 +1,16 @@
 version: 2
 updates:
+  # Workflow actions only. CI installs requirements.lock (pinned with hashes, made by
+  # `uv pip compile requirements.txt --generate-hashes`), and uv.lock comes from
+  # `uv lock`. Dependabot's pip or uv updates would bump one of these files and leave
+  # the others behind, so Python dependencies are updated by hand
+  # (docs/SECURITY_RULES.md). Security updates are a repository setting and stay on.
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      github-actions:
+        patterns:
+          - "*"
