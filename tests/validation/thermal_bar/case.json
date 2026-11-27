@@ -16,7 +16,7 @@
    "label": "Temperature near x = 25 (error relative to the 80 K span)",
    "unit": "°C",
    "formula": "T(x) = T_hot - (T_hot - T_cold) x / L, at the x of the probe's node",
-   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Wiley 2011, Ch. 3, sec. 3.1 The Plane Wall (R = L/kA, Eq. 3.6)",
    "tolerance_pct": 1,
    "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   },
@@ -25,7 +25,7 @@
    "label": "Temperature near x = 50 (error relative to the 80 K span)",
    "unit": "°C",
    "formula": "T(x) = T_hot - (T_hot - T_cold) x / L, at the x of the probe's node",
-   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Wiley 2011, Ch. 3, sec. 3.1 The Plane Wall (R = L/kA, Eq. 3.6)",
    "tolerance_pct": 1,
    "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   },
@@ -34,7 +34,7 @@
    "label": "Temperature near x = 75 (error relative to the 80 K span)",
    "unit": "°C",
    "formula": "T(x) = T_hot - (T_hot - T_cold) x / L, at the x of the probe's node",
-   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Wiley 2011, Ch. 3, sec. 3.1 The Plane Wall (R = L/kA, Eq. 3.6)",
    "tolerance_pct": 1,
    "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   },
@@ -43,7 +43,7 @@
    "label": "Heat flow into the hot end",
    "unit": "W",
    "formula": "k A (T_hot - T_cold) / L",
-   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer (1D plane wall, Fourier's law), edition/section to be checked",
+   "citation": "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Wiley 2011, Ch. 3, sec. 3.1 The Plane Wall (R = L/kA, Eq. 3.6)",
    "tolerance_pct": 1,
    "tolerance_reason": "A linear temperature field is exact for tetrahedra; the band covers solver precision."
   }

@@ -21,7 +21,7 @@
    "formula": "published reference value",
    "published_value": 92.7,
    "published": "92.7 MPa",
-   "citation": "NAFEMS, The Standard NAFEMS Benchmarks, TNSB Rev. 3, 1990, test LE1",
+   "citation": "\"The Standard NAFEMS Benchmarks\", TNSB Rev. 3, NAFEMS, October 1990, Test LE1",
    "tolerance_pct": 5,
    "tolerance_reason": "NAFEMS gives 92.7 MPa to three figures. D is where the inner edge curves most (radius 0.5 m), so a coarse mesh misses part of the peak."
   },
@@ -32,7 +32,7 @@
    "formula": "published reference value",
    "published_value": 92.7,
    "published": "92.7 MPa",
-   "citation": "NAFEMS, The Standard NAFEMS Benchmarks, TNSB Rev. 3, 1990, test LE1",
+   "citation": "\"The Standard NAFEMS Benchmarks\", TNSB Rev. 3, NAFEMS, October 1990, Test LE1",
    "tolerance_pct": 2,
    "tolerance_reason": "NAFEMS gives 92.7 MPa to three figures. The fine mesh follows the curvature at D; what is left is the extrapolation of stress to the free edge."
   }

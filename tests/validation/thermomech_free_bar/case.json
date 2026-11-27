@@ -18,7 +18,7 @@
    "label": "Free thermal elongation",
    "unit": "mm",
    "formula": "alpha dT L",
-   "citation": "Timoshenko & Goodier, Theory of Elasticity (thermal stress chapter), or Gere & Goodno, Mechanics of Materials (thermal effects), edition/section to be checked",
+   "citation": "Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 2, sec. 2.5 Thermal Effects (free thermal expansion)",
    "tolerance_pct": 2,
    "tolerance_reason": "Statically determinate supports leave the expansion free: exact elongation, zero stress."
   },
@@ -27,7 +27,7 @@
    "label": "Peak von Mises stress (zero in theory; error relative to E alpha dT, the stress of a fully clamped bar)",
    "unit": "MPa",
    "formula": "0 for a free bar",
-   "citation": "Timoshenko & Goodier, Theory of Elasticity (thermal stress chapter), or Gere & Goodno, Mechanics of Materials (thermal effects), edition/section to be checked",
+   "citation": "Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 2, sec. 2.5 Thermal Effects (free thermal expansion)",
    "tolerance_pct": 2,
    "tolerance_reason": "Statically determinate supports leave the expansion free: exact elongation, zero stress."
   }

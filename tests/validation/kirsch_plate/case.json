@@ -20,7 +20,7 @@
    "unit": "MPa",
    "formula": "s (1 - 2 cos 2 theta) at theta = 90 deg, s = remote stress",
    "published": "Kt = 3",
-   "citation": "Kirsch 1898; Timoshenko & Goodier, Theory of Elasticity, Section 35, edition to be checked",
+   "citation": "Kirsch 1898; Timoshenko & Goodier, Theory of Elasticity, 3rd ed., McGraw-Hill 1970, Section 35, section to be checked",
    "tolerance_pct": 2,
    "tolerance_reason": "The finite width (d/W = 1/20) raises Kt by a few tenths of a percent, and CalculiX extrapolates the stress from the integration points to the hole surface (up to about 1 %); the band covers both plus the mesh."
   },
@@ -30,7 +30,7 @@
    "unit": "MPa",
    "formula": "s (1 - 2 cos 2 theta) at theta = 90 deg; the stress there is uniaxial, so von Mises = s_theta",
    "published": "Kt = 3",
-   "citation": "Kirsch 1898; Timoshenko & Goodier, Theory of Elasticity, Section 35, edition to be checked",
+   "citation": "Kirsch 1898; Timoshenko & Goodier, Theory of Elasticity, 3rd ed., McGraw-Hill 1970, Section 35, section to be checked",
    "tolerance_pct": 2,
    "tolerance_reason": "The finite width (d/W = 1/20) raises Kt by a few tenths of a percent, and CalculiX extrapolates the stress from the integration points to the hole surface (up to about 1 %); the band covers both plus the mesh."
   }

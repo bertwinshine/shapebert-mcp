@@ -17,7 +17,7 @@
    "label": "Axial stress at mid-length",
    "unit": "MPa",
    "formula": "F / A",
-   "citation": "Timoshenko & Gere, Mechanics of Materials (axially loaded members, d = FL/EA), edition/section to be checked",
+   "citation": "Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 2 Axially Loaded Members, sec. 2.2 (change in length, d = FL/EA)",
    "tolerance_pct": 2,
    "tolerance_reason": "Uniform stress state, near-exact for any mesh; the band only catches setup errors."
   },
@@ -26,7 +26,7 @@
    "label": "Elongation (x movement of the loaded end)",
    "unit": "mm",
    "formula": "F L / (E A)",
-   "citation": "Timoshenko & Gere, Mechanics of Materials (axially loaded members, d = FL/EA), edition/section to be checked",
+   "citation": "Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 2 Axially Loaded Members, sec. 2.2 (change in length, d = FL/EA)",
    "tolerance_pct": 2,
    "tolerance_reason": "Uniform stress state, near-exact for any mesh; the band only catches setup errors."
   }

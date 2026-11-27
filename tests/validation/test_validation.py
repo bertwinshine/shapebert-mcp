@@ -33,7 +33,9 @@ def test_a_case_the_tools_cannot_set_up_says_why_and_stays_listed():
     assert [c["id"] for c in CASES if c not in MODELLED] == ["nafems_le10"]
     le10 = BY_ID["nafems_le10"]
     assert "sliding_faces" in le10["not_modelled"] and "fea_setup" not in le10
-    assert le10["description_check"] == "Boundary conditions to be checked against TNSB Rev. 3."
+    # D is on the top surface of the 0.6 m plate (NAFEMS, Background to Benchmarks, p. 77).
+    assert le10["probes"] == [[2000, 0, 600]] and "(2, 0, 0.6)" in le10["description"]
+    assert "description_check" not in le10
 
 
 def test_published_targets_and_closed_forms():
