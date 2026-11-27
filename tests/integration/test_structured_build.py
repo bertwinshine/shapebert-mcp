@@ -112,6 +112,59 @@ def test_chamfer_common_and_turned_placement():
     assert chamfered["volume_mm3"] == pytest.approx(1000 - 4 * 0.5 * 1 * 10 + 4 / 3, rel=1e-4)
 
 
+def _build_ribs() -> dict:
+    """Two triangular ribs against a wall: boxes cut by a cutter whose bottom face
+    runs from the rib's top corner down its slope, turned by atan2(RibH, RibL)."""
+    rib = {"WallT": "8 mm", "BaseT": "10 mm", "WallW": "80 mm", "RibT": "6 mm"}
+    _ok(set_test_parameters({**rib, "RibL": "50 mm", "RibH": "50 mm"}))
+    _ok(server.create_box(length=50, width=6, height=50, name="RibBox"))
+    _ok(
+        server.bind_parameters(
+            "RibBox",
+            {
+                "Length": "Params.RibL",
+                "Width": "Params.RibT",
+                "Height": "Params.RibH",
+                "Placement.Base.x": "Params.WallT",
+                "Placement.Base.z": "Params.BaseT",
+            },
+        )
+    )
+    boxes = _ok(server.pattern_linear("RibBox", count=2, spacing=74, direction=[0, 1, 0]))
+    _ok(server.bind_parameters(boxes["name"], {"IntervalX.y": "Params.WallW - Params.RibT"}))
+    _ok(server.create_box(length=100, width=100, height=100, name="RibCutter"))
+    _ok(server.set_placement("RibCutter", rotation_axis=[0, 1, 0], rotation_deg=45))
+    _ok(
+        server.bind_parameters(
+            "RibCutter",
+            {
+                "Length": "Params.RibL + Params.RibH",
+                "Width": "Params.WallW + 20 mm",
+                "Height": "Params.RibL + Params.RibH",
+                "Placement.Base.x": "Params.WallT",
+                "Placement.Base.y": "-10 mm",
+                "Placement.Base.z": "Params.BaseT + Params.RibH",
+                "Placement.Rotation.Angle": "atan2(Params.RibH, Params.RibL)",
+            },
+        )
+    )
+    return _ok(server.boolean("cut", base=boxes["name"], tools=["RibCutter"], label="Result"))
+
+
+@pytest.mark.parametrize("rib_l, rib_h", [(50, 50), (60, 30), (30, 70)])
+def test_ribs_rebuild_when_their_length_and_height_differ(rib_l, rib_h):
+    _build_ribs()
+    _ok(set_test_parameters({"RibL": f"{rib_l} mm", "RibH": f"{rib_h} mm"}))
+    ribs = load(server.measure("Result"))
+    assert ribs["solids"] == 2
+    assert ribs["volume_mm3"] == pytest.approx(2 * rib_l * rib_h / 2 * 6, rel=1e-6)
+    assert ribs["bbox"]["min_mm"] == pytest.approx([8, 0, 10], abs=1e-6)
+    assert ribs["bbox"]["max_mm"] == pytest.approx([8 + rib_l, 80, 10 + rib_h], abs=1e-6)
+    # The ribs become one part only when fused to the wall.
+    issues = load(server.check_geometry("Result"))["issues"]
+    assert issues == ["2 separate solids - fuse them if this should be one part"]
+
+
 def test_bad_binding_leaves_the_object_as_it_was():
     _ok(server.create_box(length=10, width=10, height=10, name="Block"))
     reply = load(server.bind_parameters("Block", {"Length": "Params.Missing"}))

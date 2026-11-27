@@ -2,6 +2,7 @@ import json
 import math
 import os
 import re
+import sys
 import time
 import types
 from pathlib import Path
@@ -165,12 +166,14 @@ FINISHED = """
 @pytest.fixture
 def tools():
     """fea_tools.py loaded as server.py ships it, with a stand-in for FreeCAD's console."""
-    errors = []
-    app = types.SimpleNamespace(Console=types.SimpleNamespace(PrintError=errors.append))
+    errors, warnings = [], []
+    console = types.SimpleNamespace(PrintError=errors.append, PrintWarning=warnings.append)
+    app = types.SimpleNamespace(Console=console)
     ns = {"re": re, "os": os, "math": math, "App": app, "FEM_PARAMS": "Fem", "_obj": _object_not_found}
     src = (Path(fea.__file__).with_name("fea_tools.py")).read_text(encoding="utf-8")
     exec(compile(src, "fea_tools.py", "exec"), ns)
-    ns["console_errors"] = errors
+    ns["console_errors"], ns["console_warnings"] = errors, warnings
+    ns["namespace"] = ns  # the functions' globals, to swap in stand-ins
     return types.SimpleNamespace(**ns)
 
 
@@ -258,6 +261,198 @@ def test_failure_shows_the_last_30_lines_and_goes_to_the_listener_log(tools, tmp
 def test_failure_falls_back_to_the_sta_file_when_ccx_printed_nothing(tools, tmp_path):
     base = _write_run(tmp_path, "", STATIC_STA)
     assert "SUMMARY OF JOB INFORMATION" in str(tools._solver_failure(base, "x", "", ""))
+
+
+CCX_BANNER = "CalculiX Version 2.22\nYou are using an executable made on Mon Aug  5 19:15:25 CEST 2024"
+
+
+@pytest.mark.parametrize(
+    "exit_code, problem",
+    [
+        (3221225477, "CalculiX crashed (exit code 0xC0000005, access violation)"),
+        (-1073741819, "CalculiX crashed (exit code 0xC0000005, access violation)"),  # signed
+        (0xC00000FD, "CalculiX crashed (exit code 0xC00000FD, stack overflow)"),
+        (0xC0000135, "CalculiX crashed (exit code 0xC0000135, a Windows error)"),
+        (-11, "CalculiX crashed (signal 11, segmentation fault)"),
+        (-9, "CalculiX crashed (signal 9, killed)"),
+        (201, "CalculiX stopped with exit code 201"),  # ccx's own error exit
+    ],
+)
+def test_an_abnormal_exit_is_named_as_a_crash(tools, tmp_path, exit_code, problem):
+    base = _write_run(tmp_path, MODAL_DAT, EIGEN_STA)
+    assert tools._solver_problem(base, exit_code, time.time(), CCX_BANNER, "frequency") == problem
+
+
+def _crashed(tools, tmp_path):
+    base = str(tmp_path / "FEA_Mesh")
+    problem = tools._solver_problem(base, 0xC0000005, time.time(), CCX_BANNER, "frequency")
+    return tools._solver_failure(base, problem, CCX_BANNER, "")
+
+
+def test_a_crash_is_the_last_line_of_the_error(tools, tmp_path):
+    error = _crashed(tools, tmp_path)
+    assert isinstance(error, tools.CcxCrash)
+    # The server reports the last line; on the motor bracket that was ccx's banner.
+    assert str(error).splitlines()[-1] == (
+        "CalculiX results not used: CalculiX crashed (exit code 0xC0000005, access violation)."
+    )
+    assert "executable made on" in str(error)
+    plain = tools._solver_failure(str(tmp_path / "x"), "CalculiX stopped with exit code 2", "out", "")
+    assert not isinstance(plain, tools.CcxCrash)
+    assert str(plain).splitlines()[-1] == "CalculiX results not used: CalculiX stopped with exit code 2."
+
+
+@pytest.fixture
+def simulated_ccx(tools, tmp_path, monkeypatch):
+    """_solve that crashes as CalculiX did on the motor bracket while the solver asks
+    for more than `crash_above` modes, and a _free_run that counts its calls."""
+    calls = {"modes": [], "freed": 0, "crash_above": 3}
+
+    def fake_solve(analysis, solver, ccx, work_dir, threads):
+        calls["modes"].append(getattr(solver, "EigenmodesCount", None))
+        if solver.AnalysisType != "frequency" or solver.EigenmodesCount > calls["crash_above"]:
+            raise _crashed(tools, tmp_path)
+        return "FEA_Mesh.inp", {"version": "2.22"}
+
+    def fake_free(analysis, work_dir):
+        calls["freed"] += 1
+
+    monkeypatch.setitem(tools.namespace, "_solve", fake_solve)
+    monkeypatch.setitem(tools.namespace, "_free_run", fake_free)
+    return calls
+
+
+def test_a_modal_crash_is_freed_and_solved_once_more_with_half_the_modes(tools, simulated_ccx):
+    solver = types.SimpleNamespace(AnalysisType="frequency", EigenmodesCount=6)
+    inp, info, retry = tools._solve_once_more_on_crash("analysis", solver, "ccx", "dir", 1)
+    assert simulated_ccx["modes"] == [6, 3] and simulated_ccx["freed"] == 1
+    assert (inp, info["version"]) == ("FEA_Mesh.inp", "2.22")
+    assert retry == {
+        "crash": "CalculiX results not used: CalculiX crashed (exit code 0xC0000005, access violation).",
+        "modes_requested": 6,
+        "modes_solved": 3,
+    }
+    assert solver.EigenmodesCount == 6  # the setup keeps what was asked for
+    assert "Solved again with 3 modes" in tools.console_warnings[0]
+
+
+def test_a_second_modal_crash_is_freed_and_reported(tools, simulated_ccx):
+    simulated_ccx["crash_above"] = 0
+    solver = types.SimpleNamespace(AnalysisType="frequency", EigenmodesCount=6)
+    with pytest.raises(tools.CcxCrash) as raised:
+        tools._solve_once_more_on_crash("analysis", solver, "ccx", "dir", 1)
+    assert simulated_ccx["modes"] == [6, 3] and simulated_ccx["freed"] == 2
+    assert str(raised.value).splitlines()[-1].endswith("It crashed with 6 modes too.")
+    assert solver.EigenmodesCount == 6
+
+
+@pytest.mark.parametrize(
+    "solver",
+    [
+        types.SimpleNamespace(AnalysisType="static"),
+        types.SimpleNamespace(AnalysisType="buckling", EigenmodesCount=6),
+        types.SimpleNamespace(AnalysisType="frequency", EigenmodesCount=1),
+    ],
+    ids=["static", "buckling", "one mode"],
+)
+def test_other_crashes_are_freed_and_not_retried(tools, simulated_ccx, solver):
+    simulated_ccx["crash_above"] = 0
+    with pytest.raises(tools.CcxCrash, match="access violation"):
+        tools._solve_once_more_on_crash("analysis", solver, "ccx", "dir", 1)
+    assert len(simulated_ccx["modes"]) == 1 and simulated_ccx["freed"] == 1
+
+
+@pytest.fixture
+def fake_purge(monkeypatch):
+    """femresult.resulttools.purge_results without FreeCAD."""
+    purged = []
+    module = types.ModuleType("femresult.resulttools")
+    module.purge_results = purged.append
+    monkeypatch.setitem(sys.modules, "femresult", types.ModuleType("femresult"))
+    monkeypatch.setitem(sys.modules, "femresult.resulttools", module)
+    return purged
+
+
+def test_freeing_a_run_drops_results_and_result_files_only(tools, tmp_path, fake_purge):
+    base = _write_run(tmp_path, MODAL_DAT, EIGEN_STA)
+    Path(base + ".inp").write_text("*NODE", encoding="utf-8")
+    tools._free_run("analysis", str(tmp_path))
+    assert fake_purge == ["analysis"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["FEA_Mesh.inp"]
+
+
+class _Mesh:
+    """A mesh object whose CharacteristicLengthMax takes '4.5 mm' and has a .Value."""
+
+    def __init__(self, size):
+        self._size = size
+
+    @property
+    def CharacteristicLengthMax(self):
+        return types.SimpleNamespace(Value=self._size)
+
+    @CharacteristicLengthMax.setter
+    def CharacteristicLengthMax(self, text):
+        self._size = float(text.split()[0])
+
+
+def _convergence(tools, monkeypatch, fail_at=None):
+    mesh, events = _Mesh(2.0), []
+    solver = types.SimpleNamespace(AnalysisType="frequency", EigenmodesCount=6)
+
+    def fake_run(name, work_dir, threads):
+        size = mesh.CharacteristicLengthMax.Value
+        events.append(f"run {size:g}")
+        if size == fail_at:
+            raise tools.CcxCrash("ccx output\nCalculiX results not used: CalculiX crashed (x).")
+        return {"mesh_size_mm": size, "nodes": 1, "elements": 1, "solve_s": 1}
+
+    stand_ins = {
+        "_fea_analysis": lambda name: "analysis",
+        "_solver_and_mesh": lambda analysis, name: (solver, mesh),
+        "_store": lambda obj, prop, value: None,
+        "fea_run": fake_run,
+        "_free_run": lambda analysis, work_dir: events.append("free"),
+        "_key_results": lambda analysis, spots, band: {"first_frequency_hz": 100.0},
+        "_r": round,  # from fc_tools.py, which server.py sends ahead of this file
+    }
+    for key, value in stand_ins.items():
+        monkeypatch.setitem(tools.namespace, key, value)
+    return mesh, events
+
+
+def test_convergence_solves_one_mesh_after_another_and_frees_between(tools, monkeypatch, fake_purge):
+    mesh, events = _convergence(tools, monkeypatch)
+    out = tools.fea_convergence("FEA", "dir")
+    assert events == ["run 4.5", "free", "run 3", "free", "run 2"]
+    assert [r["mesh_size_mm"] for r in out["runs"]] == [4.5, 3.0, 2.0]
+    assert mesh.CharacteristicLengthMax.Value == 2.0 and fake_purge == []  # the 2 mm results stay
+
+
+def test_a_crash_in_convergence_names_the_mesh_and_keeps_the_cause_last(tools, monkeypatch, fake_purge):
+    mesh, events = _convergence(tools, monkeypatch, fail_at=3.0)
+    with pytest.raises(tools.CcxCrash) as raised:
+        tools.fea_convergence("FEA", "dir")
+    lines = str(raised.value).splitlines()
+    assert lines[0] == "fea_convergence stopped at the 3.0 mm mesh (2 of 3)."
+    assert lines[-1] == "CalculiX results not used: CalculiX crashed (x)."
+    assert events == ["run 4.5", "free", "run 3"]
+    assert mesh.CharacteristicLengthMax.Value == 2.0 and fake_purge == ["analysis"]
+
+
+def test_a_retried_modal_run_says_so_in_the_assumptions():
+    record = _record("modal", setup={"modes": 6})
+    record["run"]["retry"] = {
+        "crash": "CalculiX results not used: CalculiX crashed (exit code 0xC0000005, access violation).",
+        "modes_requested": 6,
+        "modes_solved": 3,
+    }
+    block = fea.assumptions("modal", record)
+    assert block["modes"] == 3
+    warning = next(w for w in block["warnings"] if w["code"] == "solver_crash_retried")
+    assert "0xC0000005" in warning["message"] and "with 6 modes; solved again with 3" in warning["message"]
+    plain = fea.assumptions("modal", _record("modal", setup={"modes": 6}))
+    assert plain["modes"] == 6 and "solver_crash_retried" not in _codes(plain)
 
 
 def _object_not_found(name):
@@ -540,15 +735,15 @@ def test_block_reports_the_convergence_verdict(values, mesh_mm, code):
     "flagged, text",
     [
         (
-            {"load": "FEA_Force1", "element": "Face2", "kind": "small loaded face", "area_mm2": 16.0},
-            "Face2, a face of 16.0 mm^2, smaller than (2 x mesh size)^2 = 64.0 mm^2",
+            {"load": "FEA_Force1", "element": "Face2", "kind": "small loaded face", "extent_mm": 5.657},
+            "Face2, a face 5.657 mm across, less than 2 x mesh size = 8.0 mm",
         ),
         (
-            {"load": "FEA_Force1", "element": "Edge3", "kind": "load on an edge", "area_mm2": None},
+            {"load": "FEA_Force1", "element": "Edge3", "kind": "load on an edge", "extent_mm": None},
             "Edge3 (load on an edge)",
         ),
         (
-            {"load": "FEA_Force2", "element": "Vertex1", "kind": "load on a vertex", "area_mm2": None},
+            {"load": "FEA_Force2", "element": "Vertex1", "kind": "load on a vertex", "extent_mm": None},
             "Vertex1",
         ),
     ],

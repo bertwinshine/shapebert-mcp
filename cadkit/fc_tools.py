@@ -834,6 +834,46 @@ def _thickness(sel, shape, target):
     return values, used
 
 
+def _feature_centres(sel, shape, target):
+    """One centre per hole, on its axis halfway along its wall (a split wall counts
+    once), and per other target face, its centre of mass. Returns (centres, used)."""
+    numbers = sel.resolve_face(shape, target)
+    found = sel.holes(shape, numbers)
+    centres, used = [], []
+    for h in found:
+        axis, point = h["axis"], h["axis_point"]
+        along = [(shape.getElement(f).CenterOfMass - point).dot(axis) for f in h["faces"]]
+        centres.append(point + axis * (sum(along) / len(along)))
+        used += h["faces"]
+    in_holes = set(used)
+    for n in numbers:
+        if f"Face{n}" not in in_holes:
+            centres.append(shape.Faces[n - 1].CenterOfMass)
+            used.append(f"Face{n}")
+    return centres, used
+
+
+def _reference_plane(sel, shape, target):
+    """(point, unit normal, face names) of the one flat face, or coplanar faces, `target` picks."""
+    numbers = sel.resolve_face(shape, target)
+    faces = [shape.Faces[n - 1] for n in numbers]
+    if any(sel.describe_face(f, n)["type"] != "plane" for f, n in zip(faces, numbers, strict=True)):
+        raise RuntimeError(f"{target!r} is not a flat face; an offset is measured to a plane")
+    point, normal = faces[0].CenterOfMass, faces[0].normalAt(*_mid_uv(faces[0]))
+    for f in faces[1:]:
+        if abs((f.CenterOfMass - point).dot(normal)) > sel.LIN_TOL_MM:
+            raise RuntimeError(f"{target!r} picks flat faces in different planes; choose one plane")
+    return point, normal, [f"Face{n}" for n in numbers]
+
+
+def _offsets(sel, shape, check):
+    """Each feature centre's distance to the nearest of the reference planes."""
+    centres, used = _feature_centres(sel, shape, check["target"])
+    planes = [_reference_plane(sel, shape, face) for face in check["face"]]
+    values = [min(abs((c - point).dot(normal)) for point, normal, _ in planes) for c in centres]
+    return values, used + [name for *_, names in planes for name in names]
+
+
 def _mid_uv(face):
     u0, u1, v0, v1 = face.ParameterRange
     return (u0 + u1) / 2, (v0 + v1) / 2
@@ -851,6 +891,11 @@ def _measure_check(sel, obj, check):
         return [shape.Volume * 1e-9 * check["density_kg_m3"]], []
     if kind == "thickness":
         return _thickness(sel, shape, target)
+    if kind == "position":
+        centres, used = _feature_centres(sel, shape, target)
+        return [getattr(c, check["axis"].lower()) for c in centres], used
+    if kind == "offset":
+        return _offsets(sel, shape, check)
     if kind == "feature":
         if check["element"] == "edges":
             return [], [f"Edge{n}" for n in sel.resolve_edges(shape, [target])]
@@ -920,7 +965,7 @@ def _shown(check, values):
 
 
 def _verify_row(sel, obj, check):
-    keys = ("id", "kind", "target", "axis", "source_quote", "source")
+    keys = ("id", "kind", "target", "axis", "face", "source_quote", "source")
     row = {k: check.get(k) for k in keys if k in check}
     if check.get("kind") == "feature":
         row["required"] = "present"

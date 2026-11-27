@@ -18,7 +18,7 @@
    "label": "Tip deflection (centre of the free end, -z)",
    "unit": "mm",
    "formula": "F L^3 / (3 E I), I = b h^3 / 12",
-   "citation": "Timoshenko & Gere, Mechanics of Materials (beam deflection; with shear: d = PL^3/3EI + PL/(kGA), k = 5/6 for a rectangle), edition/section to be checked; Cowper, J. Appl. Mech. 33 (1966) 335-340 (shear coefficient)",
+   "citation": "Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 9 (beam deflection; with shear: d = PL^3/3EI + PL/(kGA), k = 5/6 for a rectangle), section to be checked; Cowper, J. Appl. Mech. 33 (1966) 335-340 (shear coefficient)",
    "tolerance_pct": 3,
    "tolerance_reason": "Beam theory and 3D elasticity differ by a few tenths of a percent at L/h = 10; the rest of the band covers the mesh error."
   },
@@ -27,7 +27,7 @@
    "label": "Bending stress at mid-length, top face",
    "unit": "MPa",
    "formula": "M c / I with M = F (L - x) and c = h/2, at the x of the probe's node",
-   "citation": "Timoshenko & Gere, Mechanics of Materials (beam deflection; with shear: d = PL^3/3EI + PL/(kGA), k = 5/6 for a rectangle), edition/section to be checked; Cowper, J. Appl. Mech. 33 (1966) 335-340 (shear coefficient)",
+   "citation": "Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 9 (beam deflection; with shear: d = PL^3/3EI + PL/(kGA), k = 5/6 for a rectangle), section to be checked; Cowper, J. Appl. Mech. 33 (1966) 335-340 (shear coefficient)",
    "tolerance_pct": 3,
    "tolerance_reason": "Beam theory and 3D elasticity differ by a few tenths of a percent at L/h = 10; the rest of the band covers the mesh error."
   }

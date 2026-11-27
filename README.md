@@ -1,19 +1,50 @@
-# ShapeBert – AI CAD + FEA assistant for FreeCAD
+# ShapeBert
 
 Official source: github.com/bertwinshine/shapebert-mcp. Verify releases with:
 `gh release verify v1.0.0 -R bertwinshine/shapebert-mcp`
 
-An MCP server that lets Claude design parts in FreeCAD from a plain-language
-description. Before it builds anything it works out which engineering field the
-request belongs to, asks for any dimension it shouldn't guess, and runs the
-relevant calculations. After building, it checks the result: whether the solid is
-valid, its measurements, a screenshot, and field-specific checks such as
-hydrostatics for hulls or overhangs for printed parts. When you correct a part,
-the fix is saved as an example for next time.
+ShapeBert is an MCP server for FreeCAD. Claude builds a part from your description,
+and ShapeBert checks the result against that description before the part is
+reported as done.
 
-A generic FreeCAD bridge only gives the model a way to run code. Most of this
-project is the engineering knowledge around that: seven domain files, calculators
-for the maths, and checks that run inside FreeCAD.
+<!-- Demo GIF goes here: a request built in FreeCAD, its requirement checks passing,
+     and an FEA run with its assumptions block. Save it as docs/demo.gif and link it. -->
+
+## Why ShapeBert
+
+The numbers in your request become checks on the part. "Six M10 holes on a 100 mm
+pitch circle, 12 mm thick" is stored as a hole count, a hole diameter, a pitch circle
+and a thickness, and `verify_requirements` measures each of them on the current
+geometry. Positions are checked the same way, such as a bore centre 50 mm above the
+base or holes 20 mm from an edge, and bolt holes also get a minimum edge distance and
+hole spacing. While a check fails, the part isn't reported as finished; the report
+shows what was measured next to what was asked for.
+
+Each size has a recorded source. The driving dimensions sit in a Params spreadsheet
+that the model is bound to, and every entry says where its value came from: your own
+words, quoted exactly, a rule from a knowledge file, a calculator call, or a default.
+`explain_params` lists them, and each report ends with the defaults so you can see
+what was assumed and change it.
+
+FEA results come with the assumptions behind them. Next to the stresses,
+displacements, frequencies or temperatures, `fea_results` gives the element type, the
+mesh size and node count, the material values and their source, each support and load
+with the face it sits on, and the solver version. It warns when a stress peak sits on
+a singularity, when a load is concentrated on a small area, and when the mesh hasn't
+been checked. `fea_convergence` solves again on finer meshes and says which results
+settled.
+
+The FEA is tested against known answers. Textbook cases (a cantilever's deflection,
+stress, frequency and buckling load, a bar in tension, heat conduction, thermal
+expansion, a plate with a hole and a thick cylinder) and the NAFEMS LE1 benchmark are
+solved with the same tools and compared within stated tolerances, and accepted results
+are frozen so any change shows up. [docs/validation.md](docs/validation.md) has the
+cases, their sources and the numbers.
+
+Underneath are domain files for gears, sheet metal, fasteners, shafts, welds, boats,
+3D printing and FEA, calculators so the arithmetic isn't done in the model's head, and
+saved examples. ShapeBert asks before it guesses a critical dimension, and when you
+correct a part, the fix is saved as an example for next time.
 
 ## How it fits together
 
@@ -105,7 +136,7 @@ size, node and element count and the Gmsh version, the material values the analy
 used with their source, every support, load and temperature with the selector that
 chose it and the face's centre and normal, the units, and the CalculiX version and
 mesh and solve times. Its `warnings` list first-order elements, a concentrated load
-(on a vertex, an edge, or a face smaller than (2 x mesh size)^2), a peak stress within
+(on a vertex, an edge, or a face less than 2 x mesh size across), a peak stress within
 two mesh sizes of such a load, a fixed face or a sharp inside edge (a singularity that
 grows as the mesh is refined; the reply then also gives the peak outside those zones),
 a mesh that is not checked or not converged, and every default that was used.

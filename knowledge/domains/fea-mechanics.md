@@ -41,8 +41,8 @@ ShapeBert uses it, and the source.
 - 3D FEA: matches within a fraction of a percent away from the ends; a support that
   stops lateral contraction raises the stress next to it.
 - ShapeBert: `calc_hand_check("axial_bar")`; validation case "Bar in tension".
-- Source: Timoshenko & Gere, Mechanics of Materials (axially loaded members),
-  edition/section to be checked.
+- Source: Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 2 Axially Loaded
+  Members, sec. 2.2 (change in length, d = F L / (E A)).
 
 ### Topic 2. Bending and the cantilever
 - Formula: s = M c / I; cantilever tip d = F L^3 / (3 E I); shear adds F L / (k G A),
@@ -57,8 +57,8 @@ ShapeBert uses it, and the source.
   L/h = 10. The root stress is singular where the clamped face meets the top and
   bottom faces.
 - ShapeBert: `calc_hand_check("cantilever")`; validation case "Cantilever, end load".
-- Source: Timoshenko & Gere, Mechanics of Materials (beam deflection, shear
-  deflection), edition/section to be checked.
+- Source: Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 9 (beam deflection,
+  shear deflection), section to be checked.
 
 ### Topic 3. Torsion
 - Formula: t = T r / J, J = pi d^4 / 32 for a solid round shaft (circular sections only).
@@ -70,9 +70,9 @@ ShapeBert uses it, and the source.
 - 3D FEA: matches for round shafts away from the ends; for other sections FEA is the
   better answer, and Roark's constants are the hand check.
 - ShapeBert: no `calc_hand_check` case yet; `calc_shafts` sizes round shafts.
-- Source: Timoshenko & Gere, Mechanics of Materials (torsion), edition/section to be
-  checked; Roark's Formulas for Stress and Strain (torsion of non-circular sections),
-  edition/section to be checked.
+- Source: Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 3 (torsion), section to
+  be checked; Roark's Formulas for Stress and Strain, 8th ed., Young, Budynas &
+  Sadegh, McGraw-Hill 2012, Ch. 10 Torsion (non-circular sections).
 
 ### Topic 4. Thin-walled pressure vessel
 - Formula: s_hoop = p r / t, s_axial = p r / (2 t).
@@ -81,8 +81,9 @@ ShapeBert uses it, and the source.
 - Validity: r/t above about 10; thicker walls need Lame (topic 5).
 - 3D FEA: matches in the middle of the shell; end caps and nozzles add bending.
 - ShapeBert: `calc_hand_check("thin_cylinder")`.
-- Source: Roark's Formulas for Stress and Strain (thin-walled pressure vessels),
-  edition/section to be checked.
+- Source: Roark's Formulas for Stress and Strain, 8th ed., Young, Budynas & Sadegh,
+  McGraw-Hill 2012, Ch. 13 Shells of Revolution; Pressure Vessels; Pipes (thin-walled
+  vessels).
 
 ### Topic 5. Lame thick cylinder
 - Formula: s_theta = A + B / r^2, s_r = A - B / r^2, A = (pi a^2 - po b^2) / (b^2 - a^2),
@@ -92,7 +93,8 @@ ShapeBert uses it, and the source.
 - Validity: away from the ends; no yielding.
 - 3D FEA: matches in the middle of a long cylinder.
 - ShapeBert: `calc_hand_check("thick_cylinder")`.
-- Source: Timoshenko & Goodier, Theory of Elasticity, Section 28, edition to be checked.
+- Source: Timoshenko & Goodier, Theory of Elasticity, 3rd ed., McGraw-Hill 1970,
+  Section 28, section to be checked.
 
 ### Topic 6. Stress concentration at a hole
 - Formula: Kt = 3 for a circular hole in an infinite plate under uniaxial tension:
@@ -105,8 +107,9 @@ ShapeBert uses it, and the source.
 - ShapeBert: `calc_hand_check("kirsch_hole")`; take finite-width and other notch
   factors from Roark's charts.
 - Source: Kirsch's 1898 solution as given in Timoshenko & Goodier, Theory of
-  Elasticity, Section 35, edition to be checked; Roark's Formulas for Stress and
-  Strain (stress concentration factors), edition/section to be checked.
+  Elasticity, 3rd ed., McGraw-Hill 1970, Section 35, section to be checked; Roark's
+  Formulas for Stress and Strain, 8th ed., Young, Budynas & Sadegh, McGraw-Hill 2012,
+  Ch. 17 Stress Concentration (Kt charts).
 
 ### Topic 7. Euler buckling
 - Formula: P = pi^2 E I / (K L)^2, I about the weaker axis; K = 2 (fixed-free),
@@ -147,8 +150,8 @@ ShapeBert uses it, and the source.
 - 3D FEA: exact for a bar with insulated sides (the temperature is linear).
 - ShapeBert: `calc_hand_check("plane_wall")`; validation case "Bar, steady heat
   conduction".
-- Source: Incropera et al., Fundamentals of Heat and Mass Transfer (plane wall,
-  Fourier's law, convection), edition/section to be checked.
+- Source: Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Wiley
+  2011, Ch. 3, sec. 3.1 The Plane Wall (R = L / (k A), Eq. 3.6).
 
 ### Topic 10. Thermal strain and stress
 - Formula: e = alpha dT; free elongation d = alpha dT L; fully restrained (uniaxial)
@@ -161,8 +164,9 @@ ShapeBert uses it, and the source.
   expansion and add local peaks there.
 - ShapeBert: `calc_hand_check("thermal_expansion")`; validation case "Free bar,
   uniform heating".
-- Source: Timoshenko & Goodier, Theory of Elasticity (thermal stress chapter),
-  edition/section to be checked.
+- Source: Gere & Timoshenko, Mechanics of Materials (SI ed.), Ch. 2, sec. 2.5 Thermal
+  Effects (free thermal expansion); Roark's Formulas for Stress and Strain, 8th ed.,
+  Young, Budynas & Sadegh, McGraw-Hill 2012, Ch. 16 Dynamic and Temperature Stresses.
 
 ### Topic 11. Singularities and Saint-Venant's principle
 - Formula: none finite. Elastic stress under a concentrated load is singular (Kelvin
@@ -176,12 +180,13 @@ ShapeBert uses it, and the source.
   the stress depends only on the resultant, so it is safe to read there.
 - 3D FEA: the peak at a singular point keeps rising as the mesh is refined;
   displacements stay finite.
-- ShapeBert: `fea_results` flags a load on a vertex or an edge, a loaded face smaller
-  than (2 x mesh size)^2, and a peak within 2 mesh sizes of such a load, a fixed face
+- ShapeBert: `fea_results` flags a load on a vertex or an edge, a loaded face less
+  than 2 x mesh size across (its largest extent), and a peak within 2 mesh sizes of such a load, a fixed face
   or a sharp inside edge, and then also reports the peak outside those zones. To get
   a real value: read stress away from the spot, model the fillet radius, or use a
   linearised or averaged stress.
-- Source: Timoshenko & Goodier, Theory of Elasticity, sections to be checked;
+- Source: Timoshenko & Goodier, Theory of Elasticity, 3rd ed., McGraw-Hill 1970,
+  sections to be checked;
   Sinclair, "Stress singularities in classical elasticity I", Appl. Mech. Rev. 57(4)
   2004; Williams, "Stress singularities resulting from various boundary conditions in
   angular corners of plates in extension", J. Appl. Mech. 19 (1952) 526-528.
@@ -200,8 +205,8 @@ ShapeBert uses it, and the source.
   follows max displacement and the peak stress outside the flagged zones (or the
   frequency, load factor or heat flow); under 2 % change counts as converged.
 - Source: Bathe, Finite Element Procedures, 2nd ed., 2014 (and his MIT OCW RES.2-002
-  lectures), sections to be checked; NAFEMS, The Standard NAFEMS Benchmarks, TNSB
-  Rev. 3, 1990.
+  lectures), sections to be checked; "The Standard NAFEMS Benchmarks", TNSB Rev. 3,
+  NAFEMS, October 1990.
 
 ## 4. Verification checks (must verify, report result)
 - `equilibrium_ok` is true: the reactions balance the loads.
@@ -222,8 +227,8 @@ ShapeBert uses it, and the source.
 - Mesh: element size, second-order (10-node) tetrahedra, convergence, singularity.
 
 ## 6. Standards to respect (paraphrased - never reproduce standards text)
-- NAFEMS, The Standard NAFEMS Benchmarks (TNSB Rev. 3, 1990): published reference
-  problems for checking FE results.
+- "The Standard NAFEMS Benchmarks", TNSB Rev. 3, NAFEMS, October 1990: published
+  reference problems for checking FE results.
 - Design codes (pressure vessels, steel structures, machine parts) set the
   allowable stresses and safety factors; ShapeBert does not apply them.
 Tell the user a formal/certified calculation is a separate step beyond the CAD.

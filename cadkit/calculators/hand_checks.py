@@ -11,12 +11,12 @@ import math
 from ._checks import check
 
 KNOWLEDGE = "knowledge/domains/fea-mechanics.md"
-MECHANICS = "Timoshenko & Gere, Mechanics of Materials, edition/section to be checked"
-ELASTICITY = "Timoshenko & Goodier, Theory of Elasticity, edition to be checked"
+MECHANICS = "Gere & Timoshenko, Mechanics of Materials (SI ed.)"
+ELASTICITY = "Timoshenko & Goodier, Theory of Elasticity, 3rd ed., McGraw-Hill 1970"
 STABILITY = "Timoshenko & Gere, Theory of Elastic Stability, 2nd ed., McGraw-Hill 1961"
 VIBRATION = "Timoshenko, Young & Weaver, Vibration Problems in Engineering, 4th ed., Wiley 1974"
-INCROPERA = "Incropera et al., Fundamentals of Heat and Mass Transfer, edition/section to be checked"
-ROARK = "Roark's Formulas for Stress and Strain, edition/section to be checked"
+INCROPERA = "Incropera et al., Fundamentals of Heat and Mass Transfer, 7th ed., Wiley 2011"
+ROARK = "Roark's Formulas for Stress and Strain, 8th ed., Young, Budynas & Sadegh, McGraw-Hill 2012"
 # Shear coefficient of a rectangular section (topic 2 of the knowledge file).
 K_RECTANGLE = 5 / 6
 # Effective length factors K for an Euler column (topic 7).
@@ -62,7 +62,7 @@ def axial_bar(force_n: float, area_mm2: float, length_mm: float, E_mpa: float) -
         ["linear elastic, small strain", "prismatic bar", "load through the centroid"],
         "Matches closely beyond the Saint-Venant zone, about one width from the load and the "
         "supports; a support that stops lateral contraction raises the stress next to it.",
-        MECHANICS + " (axially loaded members)",
+        MECHANICS + ", Ch. 2 Axially Loaded Members, sec. 2.2 (change in length, d = F L / (E A))",
     )
 
 
@@ -99,7 +99,7 @@ def cantilever(
         "3D FEA comes out slightly softer than Euler-Bernoulli (a few tenths of a percent at "
         "L/h = 10). The root stress in FEA is singular at the clamped edges: compare it a "
         "little away from the support.",
-        MECHANICS + " (beam deflection, shear deflection)",
+        MECHANICS + ", Ch. 9 (beam deflection, shear deflection), section to be checked",
         [
             check(
                 "slender beam",
@@ -156,8 +156,8 @@ def euler_column(
         ["perfectly straight, load through the centroid", "linear elastic", f"ideal {end_condition} ends"],
         "Linear-buckling FEA lands near the Engesser value, slightly below Euler. Real columns "
         "with imperfections buckle much lower than either.",
-        STABILITY + ", Section 2.1 (Euler), Section 2.17 (Engesser shear correction); K for other "
-        "end conditions: section to be checked",
+        STABILITY + ", Section 2.1 (Euler), Section 2.17 (Engesser shear correction); K for the other "
+        "end conditions and the Johnson parabola: section to be checked",
         checks,
     )
 
@@ -178,7 +178,7 @@ def thin_cylinder(pressure_mpa: float, mean_radius_mm: float, thickness_mm: floa
         ["membrane stress, uniform through the wall", "closed ends", "away from the end caps"],
         "FEA shows bending at the end caps and nozzles that the membrane formula leaves out; "
         "compare in the middle of the shell.",
-        ROARK + " (thin-walled pressure vessels)",
+        ROARK + ", Ch. 13 Shells of Revolution; Pressure Vessels; Pipes (thin-walled vessels)",
         [
             check(
                 "thin wall",
@@ -217,7 +217,7 @@ def thick_cylinder(
         "B = (pi - po) a^2 b^2 / (b^2 - a^2)",
         ["long cylinder, away from the ends", "linear elastic", "axisymmetric load"],
         "Matches closely in the middle of a long cylinder; end caps and nozzles add local bending.",
-        ELASTICITY + ", Section 28",
+        ELASTICITY + ", Section 28, section to be checked",
     )
 
 
@@ -247,7 +247,11 @@ def kirsch_hole(
         ["infinite plate", "uniaxial remote tension", "linear elastic, plane stress"],
         "A finite plate raises Kt above 3 as d/W grows; take finite-width and other notch "
         "factors from the charts. FEA needs several elements around the hole to reach the peak.",
-        ELASTICITY + ", Section 35 (Kirsch 1898); finite width and other notches: " + ROARK,
+        "Kirsch's 1898 solution as given in "
+        + ELASTICITY
+        + ", Section 35, section to be checked; "
+        + ROARK
+        + ", Ch. 17 Stress Concentration (Kt charts)",
     )
 
 
@@ -295,7 +299,7 @@ def beam_frequency(
         ["Euler-Bernoulli beam", "uniform section", "ideal supports", "no added mass"],
         "3D FEA comes out slightly lower: shear and rotary inertia, more so for higher modes "
         "and short beams. Real supports are softer, so real frequencies are lower still.",
-        VIBRATION + ", Section 5.3 (clamped-free; other supports: section to be checked)",
+        VIBRATION + ", Section 5.3 (clamped-free); other supports: section to be checked",
         [
             check(
                 "slender beam",
@@ -324,7 +328,7 @@ def plane_wall(k_w_mk: float, area_mm2: float, thickness_mm: float, t_hot_c: flo
         ["steady state", "constant k", "1D: other faces insulated", "fixed face temperatures"],
         "Exact for a bar with insulated sides; FEA reproduces it to solver precision. With "
         "convection, h is an input the user has to give.",
-        INCROPERA + " (plane wall, Fourier's law)",
+        INCROPERA + ", Ch. 3, sec. 3.1 The Plane Wall (R = L / (k A), Eq. 3.6)",
     )
 
 
@@ -347,5 +351,8 @@ def thermal_expansion(
         ["uniform temperature change", "constant alpha", "linear elastic"],
         "A free (statically determinate) part expands without stress in FEA too; fully fixed "
         "faces also block the sideways expansion, which adds local peaks at those faces.",
-        ELASTICITY + " (thermal stress chapter), section to be checked",
+        MECHANICS
+        + ", Ch. 2, sec. 2.5 Thermal Effects (free thermal expansion); "
+        + ROARK
+        + ", Ch. 16 Dynamic and Temperature Stresses",
     )

@@ -1,22 +1,21 @@
 {
  "title": "NAFEMS LE10, thick plate under pressure",
  "benchmark": true,
- "description": "Quarter of a thick elliptic plate: inner ellipse (x/2)^2 + (y/1)^2 = 1, outer ellipse (x/3.25)^2 + (y/2.75)^2 = 1 (metres), 0.6 m thick (z from -0.3 to 0.3), steel (E 210 GPa, nu 0.3), 1 MPa pressure on the top face. Outer curved face held in x and y; the mid-plane edge on the outer face held in z; symmetry on the x and y planes. Target: sigma_yy at D (2, 0, 0.3).",
- "description_check": "Boundary conditions to be checked against TNSB Rev. 3.",
- "not_modelled": "fea_setup cannot express these supports: fixed_faces hold a face in x, y and z, and sliding_faces take only flat faces facing along an axis. LE10 needs the curved outer face held in x and y only, and an edge held in z (the outer face's mid-plane line, which exists only if that face is split at z = 0).",
+ "description": "Quarter of a thick elliptic plate: inner ellipse (x/2)^2 + (y/1)^2 = 1, outer ellipse (x/3.25)^2 + (y/2.75)^2 = 1 (metres), 0.6 m thick (z from 0 to 0.6), steel (E 210 GPa, nu 0.3), 1 MPa pressure on the top face. Boundary conditions as in TNSB: symmetry on the x and y faces, the outer curved face held in x and y, and the mid-height line EE' on the outer face (z = 0.3) held in z. Target: sigma_yy at D (2, 0, 0.6), on the top surface (NAFEMS, Background to Benchmarks, p. 77).",
+ "not_modelled": "fea_setup cannot express these supports: fixed_faces hold a face in x, y and z, and sliding_faces take only flat faces facing along an axis. LE10 needs the curved outer face held in x and y only, and the line EE' held in z (the outer face's mid-height line, which exists only if that face is split at z = 0.3).",
  "geometry": {"kind": "elliptic_quarter_plate", "inner_semi_axes_mm": [2000, 1000], "outer_semi_axes_mm": [3250, 2750], "thickness_mm": 600},
  "material": "steel",
  "material_values": {"E_mpa": 210000, "nu": 0.3},
- "probes": [[2000, 0, 300]],
+ "probes": [[2000, 0, 600]],
  "quantities": [
   {
    "id": "sigma_yy_d_mpa",
-   "label": "sigma_yy at D (2, 0, 0.3), top face",
+   "label": "sigma_yy at D (2, 0, 0.6), top face",
    "unit": "MPa",
    "formula": "published reference value",
    "published_value": -5.38,
    "published": "-5.38 MPa",
-   "citation": "NAFEMS, The Standard NAFEMS Benchmarks, TNSB Rev. 3, 1990, test LE10",
+   "citation": "\"The Standard NAFEMS Benchmarks\", TNSB Rev. 3, NAFEMS, October 1990, Test LE10; D on the top surface: NAFEMS, Background to Benchmarks, p. 77",
    "tolerance_pct": 2,
    "tolerance_reason": "Not run; set as for the LE1 fine mesh."
   }

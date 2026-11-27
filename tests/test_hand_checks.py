@@ -2,6 +2,8 @@
 
 import json
 import math
+import re
+from pathlib import Path
 
 import pytest
 
@@ -137,8 +139,8 @@ def test_bad_inputs_are_refused(case, kwargs, message):
         case(**kwargs)
 
 
-def test_every_case_names_its_formula_assumptions_and_source():
-    replies = [
+def _every_case() -> list[dict]:
+    return [
         hc.axial_bar(1, 1, 1, 1),
         hc.cantilever(1, 200, 20, 20, 1),
         hc.euler_column(100, 1, 5, 5),
@@ -149,7 +151,24 @@ def test_every_case_names_its_formula_assumptions_and_source():
         hc.plane_wall(1, 1, 1, 2, 1),
         hc.thermal_expansion(1e-5, 1, 1),
     ]
-    for reply in replies:
+
+
+def _knowledge_sources() -> dict[str, str]:
+    """{topic number: its "- Source:" text, lines joined} from the knowledge file."""
+    text = (Path(hc.__file__).parents[2] / hc.KNOWLEDGE).read_text(encoding="utf-8")
+    found = re.findall(r"^### Topic (\d+)\..*?^- Source: (.*?)\.\n(?=- |\n|###)", text, re.M | re.S)
+    return {topic: " ".join(source.split()) for topic, source in found}
+
+
+def test_every_source_is_the_knowledge_file_source_word_for_word():
+    sources = _knowledge_sources()
+    for reply in _every_case():
+        topic, source = re.fullmatch(r".*?, topic (\d+); (.*)", reply["source"]).groups()
+        assert source == sources[topic], reply["case"]
+
+
+def test_every_case_names_its_formula_assumptions_and_source():
+    for reply in _every_case():
         assert reply["formula"] and reply["assumptions"] and reply["fea_differs"]
         assert reply["source"].startswith("knowledge/domains/fea-mechanics.md, topic ")
 

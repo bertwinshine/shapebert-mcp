@@ -33,7 +33,9 @@ def test_a_case_the_tools_cannot_set_up_says_why_and_stays_listed():
     assert [c["id"] for c in CASES if c not in MODELLED] == ["nafems_le10"]
     le10 = BY_ID["nafems_le10"]
     assert "sliding_faces" in le10["not_modelled"] and "fea_setup" not in le10
-    assert le10["description_check"] == "Boundary conditions to be checked against TNSB Rev. 3."
+    # D is on the top surface of the 0.6 m plate (NAFEMS, Background to Benchmarks, p. 77).
+    assert le10["probes"] == [[2000, 0, 600]] and "(2, 0, 0.6)" in le10["description"]
+    assert "description_check" not in le10
 
 
 def test_published_targets_and_closed_forms():
@@ -122,6 +124,7 @@ def solved():
         results = runs[case["fea_setup"]["mesh_size_mm"]]
         out[case["id"]] = {
             "results": results,
+            "runs": runs,
             "rows": cases.compare(case, runs, server),
             "env": cases.environment(server, results),
         }
@@ -183,6 +186,16 @@ def test_peak_stress_at_the_clamped_end_is_flagged_as_a_singularity(solved):
     assert "stress_at_singularity" in codes
     assert results["max_von_mises_away_from_singularities_at_mm"][0] > 8
     assert "near_singularity" not in results["probes"][1]
+
+
+@live
+def test_the_load_along_the_thin_le1_edge_is_not_taken_for_a_concentrated_load(solved):
+    """The loaded outer face is 50 mm thick but metres long. By area (about 0.24 m^2)
+    it is less than (2 x 500 mm)^2; across it is far more than 2 x 500 mm."""
+    for mesh, results in solved[1]["nafems_le1"]["runs"].items():
+        codes = {w["code"] for w in results["assumptions"]["warnings"]}
+        assert "load_singularity" not in codes, mesh
+        assert "near_singularity" not in results["probes"][0], mesh
 
 
 @live

@@ -20,6 +20,8 @@ KINDS = {
     "hole_spacing": ("mm", "faces"),
     "edge_distance": ("mm", "faces"),
     "thickness": ("mm", "faces"),
+    "position": ("mm", "faces"),
+    "offset": ("mm", "faces"),
     "volume": ("mm3", "object"),
     "mass": ("kg", "object"),
     "feature": (None, "faces or edges"),
@@ -27,14 +29,26 @@ KINDS = {
 COMMON_KEYS = {"id", "kind", "target", "value", "unit", "op", "tolerance", "source_quote", "source"}
 # A limit from a design rule rather than from the request names that rule.
 RULE_SOURCES = ("knowledge", "calc")
-EXTRA_KEYS = {"size": {"axis"}, "mass": {"density_kg_m3"}}
+EXTRA_KEYS = {"size": {"axis"}, "position": {"axis"}, "offset": {"face"}, "mass": {"density_kg_m3"}}
 AXES = ("X", "Y", "Z")
+MAX_REFERENCE_FACES = 6
 # eq: the value within the tolerance; min / max: a limit the measured value may reach.
 OPS = ("eq", "min", "max")
 
 
 class RequirementError(ValueError):
     pass
+
+
+def _value(kind, value, what):
+    """A position may be zero or negative and an offset zero; every other value is positive."""
+    if kind not in ("position", "offset"):
+        return _positive(value, what)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise RequirementError(f"{what} must be a finite number")
+    if kind == "offset" and value < 0:
+        raise RequirementError(f"{what} is a distance and must be 0 or more")
+    return float(value)
 
 
 def _positive(value, what):
@@ -98,6 +112,18 @@ def _target(kind, target, where):
         raise RequirementError(f"{where}: target: {e}") from None
 
 
+def _reference_faces(value, where):
+    """One flat-face selector, or several when a pattern sits the same distance from
+    opposite sides (holes 20 mm from both ends). Always a list."""
+    faces = value if isinstance(value, list) else [value]
+    if not 1 <= len(faces) <= MAX_REFERENCE_FACES:
+        raise RequirementError(f"{where}: face must be one selector or a list of 1 to {MAX_REFERENCE_FACES}")
+    try:
+        return [selectors.parse_face(f) for f in faces]
+    except selectors.SelectorError as e:
+        raise RequirementError(f"{where}: face: {e}") from None
+
+
 def _op(check, where):
     op = check.get("op", "eq")
     if op not in OPS:
@@ -146,18 +172,20 @@ def check_one(check, index):
     else:
         if check.get("unit") != unit:
             raise RequirementError(f"{where}: unit must be {unit!r} for a {kind} check")
-        value = _positive(check.get("value"), f"{where}: value")
+        value = _value(kind, check.get("value"), f"{where}: value")
         if kind == "hole_count" and not value.is_integer():
             raise RequirementError(f"{where}: a hole count must be a whole number")
         op = _op(check, where)
         out.update(value=value, unit=unit, op=op)
         if op == "eq":
             out["tolerance"] = _tolerance(kind, check, value, where)
-    if kind == "size":
+    if kind in ("size", "position"):
         axis = str(check.get("axis", "")).upper()
         if axis not in AXES:
             raise RequirementError(f"{where}: axis must be X, Y or Z")
         out["axis"] = axis
+    if kind == "offset":
+        out["face"] = _reference_faces(check.get("face"), where)
     if kind == "mass":
         out["density_kg_m3"] = _positive(check.get("density_kg_m3"), f"{where}: density_kg_m3")
     out.update(_origin(check, where))
