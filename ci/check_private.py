@@ -33,6 +33,9 @@ PLUGIN_COMMANDS = (
     "`gh release verify ",
     "Repository URL: `https://github.com/",
 )
+# The README's badge and issues link point at the official repository, which names the account.
+OFFICIAL_REPO_URL = "https://github.com/bertwinshine/shapebert-mcp"
+OFFICIAL_REPO = re.compile(re.escape(OFFICIAL_REPO_URL) + r"(?![\w.-])")
 # CODEOWNERS has to name the owner's GitHub handle; other content there is still checked.
 CODEOWNERS = ".github/CODEOWNERS"
 OWNER_LINE = re.compile(r"^\S+(?:\s+@[A-Za-z0-9-]+(?:/[A-Za-z0-9_.-]+)?)+\s*$")
@@ -62,6 +65,11 @@ def local_patterns() -> list[re.Pattern]:
     ]
 
 
+def has_personal_data(line: str, patterns: list[re.Pattern]) -> bool:
+    """True if a pattern matches outside the official repository URL."""
+    return any(p.search(OFFICIAL_REPO.sub("", line)) for p in patterns)
+
+
 def main() -> int:
     patterns = BUILT_IN + local_patterns()
     hits = []
@@ -83,7 +91,7 @@ def main() -> int:
                 continue
             if name == CODEOWNERS and OWNER_LINE.match(line):
                 continue
-            if any(p.search(line) for p in patterns):
+            if has_personal_data(line, patterns):
                 hits.append(f"{name}:{number}: {line.strip()[:100]}")
     for hit in hits:
         print(hit)

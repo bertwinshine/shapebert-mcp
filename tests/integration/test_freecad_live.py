@@ -1,7 +1,7 @@
 """Tests against a running FreeCAD listener; skipped when none is reachable.
 
 They close every open FreeCAD document, so save your work first. Start a headless
-listener as the README's Tests section shows.
+listener as the Tests section of docs/install.md shows.
 """
 
 import math
