@@ -50,13 +50,19 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        freecad: ["1.1.3"]
+        # Only the label in the check name "freecad (1.1)", which branch protection
+        # requires. The exact versions are in CONDA_PINS, so bumping one keeps the name.
+        freecad: ["1.1"]
     defaults:
       run:
         shell: bash -el {0}
-    # Fixed so the failure artifact below always finds the solver files.
     env:
+      # Fixed so the failure artifact below always finds the solver files.
       FREECAD_MCP_WORKDIR: /tmp/freecad_mcp_test_work
+      # Exact versions, so a new conda-forge release can't change the results between
+      # runs: the set the frozen validation results come from (docs/validation.md).
+      # Unpinned, Gmsh 4.15.2 with CalculiX 2.24 stopped on an invalid element.
+      CONDA_PINS: freecad==1.1.3 calculix==2.22 gmsh==4.15.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: conda-incubator/setup-miniconda@be893c923ea9cf1cf7cd510fbdde27c7e18cbdcb # v4.1.0
@@ -66,10 +72,8 @@ jobs:
       # The FEA tests need the CalculiX (ccx) and Gmsh programs. One solve with FreeCAD
       # keeps their libraries compatible and puts both in the env's bin folder, where
       # FreeCAD looks before the PATH. The apt mirror stalled this job more than once.
-      # Exact versions, so a new conda-forge release can't change the results between
-      # runs: the set the frozen validation results come from (docs/validation.md).
-      # Unpinned, Gmsh 4.15.2 with CalculiX 2.24 stopped on an invalid element.
-      - run: conda install -y -c conda-forge "freecad==${{ matrix.freecad }}" "calculix==2.22" "gmsh==4.15.0"
+      # CONDA_PINS is left unquoted so each pin is its own argument.
+      - run: conda install -y -c conda-forge $CONDA_PINS
       - run: pip install -r requirements.txt pytest
       # Log what this run got. The FEA tests only skip without ccx or gmsh, so a
       # missing one fails here.
