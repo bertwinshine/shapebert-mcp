@@ -50,7 +50,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        freecad: ["1.1"]
+        freecad: ["1.1.3"]
     defaults:
       run:
         shell: bash -el {0}
@@ -66,10 +66,13 @@ jobs:
       # The FEA tests need the CalculiX (ccx) and Gmsh programs. One solve with FreeCAD
       # keeps their libraries compatible and puts both in the env's bin folder, where
       # FreeCAD looks before the PATH. The apt mirror stalled this job more than once.
-      - run: conda install -y -c conda-forge "freecad=${{ matrix.freecad }}" calculix gmsh
+      # Exact versions, so a new conda-forge release can't change the results between
+      # runs: the set the frozen validation results come from (docs/validation.md).
+      # Unpinned, Gmsh 4.15.2 with CalculiX 2.24 stopped on an invalid element.
+      - run: conda install -y -c conda-forge "freecad==${{ matrix.freecad }}" "calculix==2.22" "gmsh==4.15.0"
       - run: pip install -r requirements.txt pytest
-      # The unpinned conda packages can change between runs; log what this run got.
-      # The FEA tests only skip without ccx or gmsh, so a missing one fails here.
+      # Log what this run got. The FEA tests only skip without ccx or gmsh, so a
+      # missing one fails here.
       - name: tool versions
         run: |
           conda list "^(freecad|occt|vtk|python|calculix|gmsh)$"

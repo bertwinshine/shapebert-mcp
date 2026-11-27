@@ -302,6 +302,89 @@ def test_a_crash_is_the_last_line_of_the_error(tools, tmp_path):
     assert str(plain).splitlines()[-1] == "CalculiX results not used: CalculiX stopped with exit code 2."
 
 
+@pytest.mark.parametrize(
+    "error_text",
+    [
+        # As the Linux CI run printed it (CalculiX 2.24, Gmsh 4.15.2).
+        "nonpositive jacobian determinant in element 28400",
+        # Split over two lines with Fortran's padding, as list-directed writes print it.
+        " *ERROR in e_c3d: nonpositive jacobian\n        determinant in element       28400",
+    ],
+    ids=["one line", "two lines"],
+)
+def test_a_nonpositive_jacobian_is_named_as_an_invalid_mesh_element(tools, tmp_path, error_text):
+    base = str(tmp_path / "FEA_Mesh")
+    stdout = f"{CCX_BANNER}\n{error_text}\n"
+    problem = tools._solver_problem(base, 201, time.time(), stdout, "static")
+    assert problem == (
+        "the mesher made an invalid element: CalculiX found a nonpositive jacobian determinant "
+        "in element 28400 and stopped with exit code 201"
+    )
+    error = tools._solver_failure(base, problem, stdout, "")
+    assert isinstance(error, tools.InvalidElement) and not isinstance(error, tools.CcxCrash)
+    assert str(error).splitlines()[-1] == f"CalculiX results not used: {problem}."
+
+
+@pytest.fixture
+def bent_mesh(tools, tmp_path, monkeypatch):
+    """A mesh whose first Gmsh run has an inside-out element unless high-order
+    optimisation is on, and stand-ins that record what was meshed and solved."""
+    mesh = types.SimpleNamespace(HighOrderOptimize="None")
+    calls = {"meshed": [], "solved": [], "fixed_by": "Optimization"}
+    stdout = f"{CCX_BANNER}\nnonpositive jacobian determinant in element 28400\n"
+
+    def fake_solve(analysis, solver, ccx, work_dir, threads):
+        calls["solved"].append(mesh.HighOrderOptimize)
+        if mesh.HighOrderOptimize != calls["fixed_by"]:
+            problem = tools._solver_problem(str(tmp_path / "FEA_Mesh"), 201, time.time(), stdout, "static")
+            raise tools._solver_failure(str(tmp_path / "FEA_Mesh"), problem, stdout, "")
+        return "FEA_Mesh.inp", {"version": "2.24"}, None
+
+    monkeypatch.setitem(tools.namespace, "_solve_once_more_on_crash", fake_solve)
+    monkeypatch.setitem(tools.namespace, "_make_mesh", lambda m: calls["meshed"].append(m.HighOrderOptimize))
+    return mesh, calls
+
+
+def test_an_invalid_element_is_meshed_again_with_high_order_optimisation(tools, bent_mesh):
+    mesh, calls = bent_mesh
+    solver = types.SimpleNamespace(AnalysisType="static")
+    inp, info, retry, remesh = tools._remesh_once_on_invalid_element(
+        "analysis", solver, mesh, "ccx", "dir", 1
+    )
+    assert calls["solved"] == ["None", "Optimization"] and calls["meshed"] == ["Optimization"]
+    assert (inp, info["version"], retry) == ("FEA_Mesh.inp", "2.24", None)
+    assert remesh == {
+        "invalid_element": (
+            "CalculiX results not used: the mesher made an invalid element: CalculiX found a nonpositive "
+            "jacobian determinant in element 28400 and stopped with exit code 201."
+        ),
+        "remeshed_with": "Gmsh HighOrderOptimize = Optimization",
+    }
+    assert mesh.HighOrderOptimize == "None"  # the setup keeps its own setting
+    assert "Meshed again with Gmsh HighOrderOptimize = Optimization" in tools.console_warnings[0]
+
+
+def test_a_valid_mesh_is_not_meshed_again(tools, bent_mesh):
+    mesh, calls = bent_mesh
+    calls["fixed_by"] = "None"
+    solver = types.SimpleNamespace(AnalysisType="static")
+    *_, remesh = tools._remesh_once_on_invalid_element("analysis", solver, mesh, "ccx", "dir", 1)
+    assert calls["solved"] == ["None"] and calls["meshed"] == [] and remesh is None
+
+
+def test_an_invalid_element_after_the_second_mesh_is_reported_once(tools, bent_mesh):
+    mesh, calls = bent_mesh
+    calls["fixed_by"] = "never"
+    solver = types.SimpleNamespace(AnalysisType="static")
+    with pytest.raises(tools.InvalidElement) as raised:
+        tools._remesh_once_on_invalid_element("analysis", solver, mesh, "ccx", "dir", 1)
+    assert calls["solved"] == ["None", "Optimization"] and calls["meshed"] == ["Optimization"]
+    last = str(raised.value).splitlines()[-1]
+    assert "the mesher made an invalid element" in last and "element 28400" in last
+    assert last.endswith("also after meshing again with Gmsh HighOrderOptimize = Optimization.")
+    assert mesh.HighOrderOptimize == "None"
+
+
 @pytest.fixture
 def simulated_ccx(tools, tmp_path, monkeypatch):
     """_solve that crashes as CalculiX did on the motor bracket while the solver asks
@@ -453,6 +536,22 @@ def test_a_retried_modal_run_says_so_in_the_assumptions():
     assert "0xC0000005" in warning["message"] and "with 6 modes; solved again with 3" in warning["message"]
     plain = fea.assumptions("modal", _record("modal", setup={"modes": 6}))
     assert plain["modes"] == 6 and "solver_crash_retried" not in _codes(plain)
+
+
+def test_a_remeshed_run_says_so_in_the_assumptions():
+    record = _record("static")
+    record["run"]["remesh"] = {
+        "invalid_element": (
+            "CalculiX results not used: the mesher made an invalid element: CalculiX found a nonpositive "
+            "jacobian determinant in element 28400 and stopped with exit code 201."
+        ),
+        "remeshed_with": "Gmsh HighOrderOptimize = Optimization",
+    }
+    block = fea.assumptions("static", record)
+    warning = next(w for w in block["warnings"] if w["code"] == "invalid_element_remeshed")
+    assert "element 28400" in warning["message"]
+    assert "Gmsh HighOrderOptimize = Optimization" in warning["message"]
+    assert "invalid_element_remeshed" not in _codes(fea.assumptions("static", _record("static")))
 
 
 def _object_not_found(name):

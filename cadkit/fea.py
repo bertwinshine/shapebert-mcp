@@ -232,6 +232,19 @@ def _retry_warnings(retry: dict | None) -> list[dict]:
     ]
 
 
+def _remesh_warnings(remesh: dict | None) -> list[dict]:
+    if not remesh:
+        return []
+    return [
+        _warning(
+            "invalid_element_remeshed",
+            f"{remesh['invalid_element']} The part was meshed again with {remesh['remeshed_with']}, "
+            "which moves the mid-side nodes of curved second-order elements until all are valid; "
+            "these results come from that second mesh.",
+        )
+    ]
+
+
 def _element_warnings(element_type: str | None) -> list[dict]:
     order = ELEMENT_TYPES.get(element_type or "", (None,))[0]
     if order == 1:
@@ -411,6 +424,7 @@ def assumptions(analysis_type: str, record: dict) -> dict:
         block["time"] = {"end_s": setup.get("time_end_s"), "step_s": setup.get("time_step_s")}
     block["warnings"] = (
         _retry_warnings(run.get("retry"))
+        + _remesh_warnings(run.get("remesh"))
         + _element_warnings(run["element_type"])
         + _load_warnings(record.get("flagged_loads") or [], (record.get("peak_stress") or {}).get("band_mm"))
         + _singularity_warnings(record.get("peak_stress"), record.get("probes") or [])

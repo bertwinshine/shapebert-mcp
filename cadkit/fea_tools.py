@@ -47,10 +47,21 @@ POSIX_CRASHES = {
     9: "killed",
     11: "segmentation fault",
 }
+# ccx stops with exit code 201 on an element turned inside out, usually a second-order
+# tetrahedron whose mid-side nodes Gmsh bent onto a curved face. The text may be split
+# over two lines.
+JACOBIAN_ERROR = re.compile(r"nonpositive\s+jacobian\s+determinant\s+in\s+element\s+(\d+)", re.I)
+INVALID_ELEMENT = "the mesher made an invalid element"
+# Gmsh's high-order optimiser moves those mid-side nodes until the elements are valid.
+MESH_FIX = ("HighOrderOptimize", "Optimization")
 
 
 class CcxCrash(RuntimeError):
     """CalculiX ended abnormally instead of exiting with an error code of its own."""
+
+
+class InvalidElement(RuntimeError):
+    """CalculiX refused an element the mesher made; a new mesh can fix it."""
 
 
 def _unique_obj(doc, name):
@@ -389,6 +400,12 @@ def _solver_problem(base, exit_code, started, stdout, analysis_type):
     if crash:
         return f"CalculiX crashed ({crash})"
     if exit_code:
+        bad = JACOBIAN_ERROR.search(stdout)
+        if bad:
+            return (
+                f"{INVALID_ELEMENT}: CalculiX found a nonpositive jacobian determinant "
+                f"in element {bad.group(1)} and stopped with exit code {exit_code}"
+            )
         return f"CalculiX stopped with exit code {exit_code}"
     for suffix in (".frd", ".dat"):
         path = base + suffix
@@ -416,7 +433,11 @@ def _solver_failure(base, problem, stdout, stderr):
     message = f"Last {TAIL_LINES} lines of CalculiX's output:\n{tail}\nCalculiX results not used: {problem}."
     # Console output gets past the listener's capture, so the listener log shows it too.
     App.Console.PrintError(f"fea_run: {message}\n")
-    return (CcxCrash if problem.startswith("CalculiX crashed") else RuntimeError)(message)
+    if problem.startswith("CalculiX crashed"):
+        return CcxCrash(message)
+    if problem.startswith(INVALID_ELEMENT):
+        return InvalidElement(message)
+    return RuntimeError(message)
 
 
 def _free_run(analysis, work_dir):
@@ -458,6 +479,32 @@ def _solve_once_more_on_crash(analysis, solver, ccx, work_dir, threads):
     return inp_file, ccx_info, retry
 
 
+def _remesh_once_on_invalid_element(analysis, solver, mesh, ccx, work_dir, threads):
+    """_solve_once_more_on_crash; if the mesher made an invalid element, mesh once more
+    with Gmsh's high-order optimisation and solve again. The mesh setting goes back to
+    the setup's afterwards. Returns (inp file, ccx info, crash retry, remesh), each
+    retry None when it was not needed."""
+    try:
+        return (*_solve_once_more_on_crash(analysis, solver, ccx, work_dir, threads), None)
+    except InvalidElement as bad:
+        first = str(bad).splitlines()[-1]
+    prop, fix = MESH_FIX
+    remeshed_with = f"Gmsh {prop} = {fix}"
+    App.Console.PrintWarning(f"fea_run: {first} Meshed again with {remeshed_with}.\n")
+    before = getattr(mesh, prop)
+    setattr(mesh, prop, fix)
+    try:
+        _make_mesh(mesh)
+        inp_file, ccx_info, retry = _solve_once_more_on_crash(analysis, solver, ccx, work_dir, threads)
+    except InvalidElement as again:
+        raise InvalidElement(
+            f"{str(again).rstrip('.')}, also after meshing again with {remeshed_with}."
+        ) from None
+    finally:
+        setattr(mesh, prop, before)
+    return inp_file, ccx_info, retry, {"invalid_element": first, "remeshed_with": remeshed_with}
+
+
 def fea_run(name, work_dir, threads=1):
     """Mesh with Gmsh and solve with CalculiX; results land in the analysis.
 
@@ -472,7 +519,9 @@ def fea_run(name, work_dir, threads=1):
         raise RuntimeError("CalculiX (ccx) was not found. Run doctor for the install steps.")
     gmsh = _make_mesh(mesh)
     meshed = time.time()
-    inp_file, ccx_info, retry = _solve_once_more_on_crash(analysis, solver, ccx, work_dir, threads)
+    inp_file, ccx_info, retry, remesh = _remesh_once_on_invalid_element(
+        analysis, solver, mesh, ccx, work_dir, threads
+    )
     record = {
         "element_type": _element_type(inp_file),
         "nodes": mesh.FemMesh.NodeCount,
@@ -484,6 +533,8 @@ def fea_run(name, work_dir, threads=1):
     }
     if retry:
         record["retry"] = retry
+    if remesh:
+        record["remesh"] = remesh
     _store(analysis, "ShapeBertRun", record)
     return {"analysis": name, **record, "element_order": "2nd order (10-node tetrahedra)", "ccx": ccx_info}
 
