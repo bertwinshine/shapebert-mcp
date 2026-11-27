@@ -27,6 +27,24 @@ PCD = {
 }
 LENGTH = {"id": "len", "kind": "size", "axis": "x", "value": 100, "unit": "mm", "source_quote": "100 x 60"}
 CHAMFER = {"id": "chamfer", "kind": "feature", "target": "inclined planar faces", "source_quote": "chamfer"}
+BORE_Z = {
+    "id": "bore_z",
+    "kind": "position",
+    "target": "the bore",
+    "axis": "z",
+    "value": 50,
+    "unit": "mm",
+    "source_quote": "bore centre 50 mm above the base",
+}
+FROM_EDGE = {
+    "id": "m8_x",
+    "kind": "offset",
+    "target": "cylindrical faces diameter 9",
+    "face": "-X face",
+    "value": 20,
+    "unit": "mm",
+    "source_quote": "M8 holes 20 mm from the end",
+}
 
 
 def _with(base, **changes):
@@ -89,6 +107,34 @@ def test_op_defaults_to_eq_and_min_max_carry_no_tolerance():
         assert count["op"] == op and ("tolerance" in count) == (op == "eq")
 
 
+def test_position_and_offset_checks_come_back_canonical():
+    position, offset = reqs.check_all([BORE_Z, FROM_EDGE])
+    assert position == {
+        "id": "bore_z",
+        "kind": "position",
+        "target": "bore",
+        "element": "faces",
+        "value": 50.0,
+        "unit": "mm",
+        "op": "eq",
+        "tolerance": 0.01,
+        "axis": "Z",
+        "source_quote": "bore centre 50 mm above the base",
+    }
+    assert offset["face"] == ["-X"] and offset["target"] == "cylindrical faces diameter 9"
+    assert offset["tolerance"] == 0.01 and "axis" not in offset
+    # A position may sit on or below the origin; an offset may be zero.
+    assert reqs.check_one(_with(BORE_Z, value=-12.5), 1)["value"] == -12.5
+    assert reqs.check_one(_with(BORE_Z, value=0), 1)["value"] == 0
+    assert reqs.check_one(_with(FROM_EDGE, value=0), 1)["value"] == 0
+    limit = reqs.check_one(_with(FROM_EDGE, op="min", tolerance=...), 1)
+    assert limit["op"] == "min" and "tolerance" not in limit
+    assert reqs.check_one(_with(BORE_Z, op="max", value=55), 1)["op"] == "max"
+    assert reqs.check_one(_with(BORE_Z, tolerance=0.1), 1)["tolerance"] == 0.1
+    both_ends = reqs.check_one(_with(FROM_EDGE, face=["-x face", "+X"]), 1)
+    assert both_ends["face"] == ["-X", "+X"]
+
+
 def test_an_explicit_tolerance_is_kept():
     assert reqs.check_one(_with(PCD, tolerance=0.2), 1)["tolerance"] == 0.2
     assert reqs.check_one(_with(HOLES, tolerance=0), 1)["tolerance"] == 0
@@ -137,6 +183,22 @@ def test_an_explicit_tolerance_is_kept():
             "density_kg_m3",
         ),
         ("hole_count 6", "give an object"),
+        (_with(BORE_Z, axis=...), "axis must be X, Y or Z"),
+        (_with(BORE_Z, axis="R"), "axis must be X, Y or Z"),
+        (_with(BORE_Z, target=...), "a selector must be text"),
+        (_with(BORE_Z, value=float("nan")), "finite number"),
+        (_with(BORE_Z, value="50"), "finite number"),
+        (_with(BORE_Z, unit="count"), "unit must be 'mm'"),
+        (_with(BORE_Z, face="-X"), "unknown keys"),
+        (_with(FROM_EDGE, value=-20), "0 or more"),
+        (_with(FROM_EDGE, face=...), "face: a selector must be text"),
+        (_with(FROM_EDGE, face="the end face"), "face: unknown face selector"),
+        (_with(FROM_EDGE, face="Face3"), "face numbers change"),
+        (_with(FROM_EDGE, face=[]), "face must be one selector or a list of 1 to 6"),
+        (_with(FROM_EDGE, face=["-X"] * 7), "face must be one selector or a list of 1 to 6"),
+        (_with(FROM_EDGE, face=["-X", "the end"]), "face: unknown face selector"),
+        (_with(FROM_EDGE, axis="X"), "unknown keys"),
+        (_with(FROM_EDGE, op="max", tolerance=0.5), "leave tolerance out"),
     ],
 )
 def test_bad_checks_are_refused(check, message):

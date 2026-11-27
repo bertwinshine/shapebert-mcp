@@ -219,6 +219,19 @@ def _warning(code: str, message: str) -> dict:
     return {"code": code, "message": message}
 
 
+def _retry_warnings(retry: dict | None) -> list[dict]:
+    if not retry:
+        return []
+    return [
+        _warning(
+            "solver_crash_retried",
+            f"{retry['crash']} That was with {retry['modes_requested']} modes; solved again with "
+            f"{retry['modes_solved']}, so only the lowest {retry['modes_solved']} modes are in "
+            "these results. Lower frequencies are not affected.",
+        )
+    ]
+
+
 def _element_warnings(element_type: str | None) -> list[dict]:
     order = ELEMENT_TYPES.get(element_type or "", (None,))[0]
     if order == 1:
@@ -274,8 +287,8 @@ def _load_warnings(flagged: list[dict], band_mm: float | None) -> list[dict]:
     for load in flagged:
         if load["kind"] == "small loaded face":
             where = (
-                f"{load['element']}, a face of {load['area_mm2']} mm^2, smaller than "
-                f"(2 x mesh size)^2 = {round(band_mm**2, 3)} mm^2"
+                f"{load['element']}, a face {load['extent_mm']} mm across, less than "
+                f"2 x mesh size = {band_mm} mm"
             )
         else:
             where = f"{load['element']} ({load['kind']})"
@@ -393,11 +406,12 @@ def assumptions(analysis_type: str, record: dict) -> dict:
         )
         block["initial_temperature_c"] = {"value": setup["initial_temperature_c"], "source": source}
     if analysis_type in ("modal", "buckling"):
-        block["modes"] = setup.get("modes")
+        block["modes"] = (run.get("retry") or {}).get("modes_solved", setup.get("modes"))
     if analysis_type == "thermal_transient":
         block["time"] = {"end_s": setup.get("time_end_s"), "step_s": setup.get("time_step_s")}
     block["warnings"] = (
-        _element_warnings(run["element_type"])
+        _retry_warnings(run.get("retry"))
+        + _element_warnings(run["element_type"])
         + _load_warnings(record.get("flagged_loads") or [], (record.get("peak_stress") or {}).get("band_mm"))
         + _singularity_warnings(record.get("peak_stress"), record.get("probes") or [])
         + _convergence_warnings(conv, mesh_mm)

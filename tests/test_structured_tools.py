@@ -42,9 +42,16 @@ def fc_calls(monkeypatch):
         "Box.Length",
         12,
         1.5e2,
+        "sqrt(Params.L)",
+        "atan2(Params.RibH, Params.RibL)",
+        "Params.PCD / 2 * cos(45 deg)",
+        "sqrt(Params.RibL * Params.RibL + Params.RibH * Params.RibH)",
+        "max(Params.Thk, 2 mm) + abs(Params.Off)",
+        "2 * pi * Params.R",
+        "asin(0.5) + acos(0.5) + atan(1) + sin(30 deg) + tan(1 deg) + min(1, 2)",
     ],
 )
-def test_expression_accepts_references_numbers_and_units(expr):
+def test_expression_accepts_references_numbers_units_and_maths(expr):
     assert build_checks.expression(expr)
 
 
@@ -54,8 +61,21 @@ def test_expression_accepts_references_numbers_and_units(expr):
         "",
         "PlateL",  # bare names are ambiguous; write Params.PlateL
         "Params.L; 1",
-        "sqrt(Params.L)",
         "Params.fn (1)",
+        "open(Params.L)",  # only the maths functions
+        "eval(1)",
+        "str(Params.L)",
+        "create(<<Part::Box>>)",
+        "Params.L.sqrt(2)",  # no method calls
+        "sqrt(Params.L).real",  # no attribute access on a result
+        "sqrt Params.L",  # a function must be called
+        "pi(1)",
+        "pi mm",
+        "(Params.A, Params.B)",  # a comma only between arguments
+        "Params.A, Params.B",
+        "atan2(Params.A, Params.B",
+        "sqrt(Params.A))",
+        "sqrt(Params.__class__)",
         "<<text>>",
         "'text'",
         "Params.L # comment",

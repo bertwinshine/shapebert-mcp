@@ -295,3 +295,62 @@ def test_a_full_plate_build_needs_no_free_form_code(monkeypatch):
     assert len(rows["fillet"]["used"]) == 4
     assert _ok(server.check_model_structure())["score"] == 100
     assert calls == []
+
+
+def _bracket() -> None:
+    """'Base 120 x 80 x 10, an 8 mm wall on the -X end, 80 high above the base, a 40 mm
+    bore centred 50 mm above the base underside, four M8 holes 20 mm from the ends and
+    15 mm from the long edges.' Holes 9 mm, the M8 medium clearance."""
+    _ok(server.create_box(length=120, width=80, height=10, name="Base"))
+    _ok(server.create_box(length=8, width=80, height=80, name="Wall"))
+    _ok(server.set_placement("Wall", position=[0, 0, 10]))
+    body = _ok(server.boolean("fuse", base="Base", tools=["Wall"]))
+    _ok(server.create_cylinder(radius=20, height=8, name="Bore"))
+    _ok(server.set_placement("Bore", position=[0, 40, 50], rotation_axis=[0, 1, 0], rotation_deg=90))
+    rows = []
+    for name, y in (("HoleA", 15), ("HoleB", 65)):
+        _ok(server.create_cylinder(radius=4.5, height=10, name=name))
+        _ok(server.set_placement(name, position=[20, y, 0]))
+        rows.append(_ok(server.pattern_linear(name, count=2, spacing=80))["name"])
+    _ok(server.boolean("cut", base=body["name"], tools=["Bore", *rows], label="Result"))
+
+
+def _where(check_id: str, kind: str, value: float, quote: str, **keys) -> dict:
+    return {"id": check_id, "kind": kind, "value": value, "unit": "mm", "source_quote": quote, **keys}
+
+
+def test_feature_positions_and_offsets_are_measured():
+    _new_document("Bracket")
+    _bracket()
+    holes = "cylindrical faces diameter 9"
+    checks = [
+        _where("bore_z", "position", 50, "centred 50 mm above the base underside", target="bore", axis="Z"),
+        _where("bore_y", "position", 40, "a 40 mm bore centred", target="bore", axis="y"),
+        _where("bore_low", "position", 55, "centred 50 mm above", target="bore", axis="Z", op="max"),
+        _where("ends", "offset", 20, "20 mm from the ends", target=holes, face=["-X", "+X"]),
+        _where("sides", "offset", 15, "15 mm from the long edges", target=holes, face=["-Y", "+Y"]),
+        _where("one_end", "offset", 20, "20 mm from the ends", target=holes, face="-X"),
+        _where("mid_wall", "offset", 4, "an 8 mm wall", target="bore", face="-X"),
+    ]
+    _ok(server.set_requirements("Result", checks))
+    report, rows = _rows("Result")
+    assert rows["bore_z"]["status"] == "pass" and rows["bore_z"]["measured"] == pytest.approx(50)
+    assert rows["bore_y"]["measured"] == pytest.approx(40) and rows["bore_low"]["status"] == "pass"
+    assert rows["ends"]["status"] == "pass" and rows["ends"]["measured"] == pytest.approx(20)
+    assert rows["sides"]["status"] == "pass" and rows["sides"]["measured"] == pytest.approx(15)
+    # Measured to the -X face alone, the far pair is 100 mm away.
+    assert rows["one_end"]["status"] == "fail" and rows["one_end"]["measured"] == pytest.approx([20, 100])
+    assert rows["one_end"]["face"] == ["-X"]
+    # A hole's centre is halfway along its axis: mid-wall for the bore.
+    assert rows["mid_wall"]["status"] == "pass" and rows["mid_wall"]["measured"] == pytest.approx(4)
+    assert len([f for f in rows["ends"]["used"] if f in rows["sides"]["used"]]) >= 4
+    assert report["counts"] == {"pass": 6, "fail": 1, "not_measured": 0}
+
+
+def test_an_offset_to_a_curved_face_is_not_measured():
+    _new_document("BracketBad")
+    _bracket()
+    bad = _where("x", "offset", 10, "10 mm from the bore", target="cylindrical faces diameter 9", face="bore")
+    _ok(server.set_requirements("Result", [bad]))
+    row = _rows("Result")[1]["x"]
+    assert row["status"] == "not_measured" and "not a flat face" in row["error"]

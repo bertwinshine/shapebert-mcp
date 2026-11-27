@@ -599,14 +599,15 @@ def _cantilever_tip_load(part):
 
 @needs_solver
 def test_fea_tip_load_on_a_small_face_is_flagged_as_a_concentrated_load():
-    """8 mm chamfers on the end edges leave a 4 x 4 mm end face: 16 mm^2 < (2 x 4 mm)^2."""
+    """8 mm chamfers on the end edges leave a 4 x 4 mm end face, 5.657 mm across its
+    diagonal: less than 2 x 4 mm."""
     J(server.create_box(200, 20, 20, name="Beam"))
     J(server.chamfer_edges("Beam", 8, "edges of +X face", label="Tip"))
     setup, res = _cantilever_tip_load("Tip")
     assert setup["loads"][0]["face_info"][0]["area_mm2"] == pytest.approx(16)
     warnings = res["assumptions"]["warnings"]
     load = next(w["message"] for w in warnings if w["code"] == "load_singularity")
-    assert "16.0 mm^2" in load and "64.0 mm^2" in load
+    assert "5.657 mm across" in load and "2 x mesh size = 8.0 mm" in load
     assert res["probes"][0]["near_singularity"] == {"kind": "small loaded face", "distance_mm": 0.0}
     assert "probe_at_singularity" in [w["code"] for w in warnings]
 

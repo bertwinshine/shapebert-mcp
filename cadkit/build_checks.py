@@ -12,13 +12,18 @@ BOOLEAN_OPERATIONS = {"cut", "fuse", "common"}
 UNITS = {"um", "mm", "cm", "m", "in", "ft", "deg", "rad"}
 MAX_COUNT = 200
 
-# Numbers (with an optional unit after them), dotted references and arithmetic only.
-# FreeCAD expressions also know functions and string literals; neither is needed to
-# tie a size to Params, so neither gets through.
+# FreeCAD's own maths functions, enough for angles and lengths derived from Params.
+# Its other functions (string, list, object and unit builders) are not needed to tie
+# a size to Params, so they don't get through, nor do string literals.
+FUNCTIONS = {"sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sqrt", "abs", "min", "max"}
+CONSTANTS = {"pi"}
+
+# Numbers (with an optional unit after them), dotted references, the functions and
+# constants above, and arithmetic.
 TOKEN = re.compile(
     r"\s*(?:(?P<num>(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)"
     r"|(?P<ref>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
-    r"|(?P<op>[-+*/()]))"
+    r"|(?P<op>[-+*/(),]))"
 )
 
 
@@ -69,13 +74,16 @@ def vector(value, what: str, default: list[float], nonzero: bool = False) -> lis
 
 
 def expression(value) -> str:
-    """A FreeCAD expression limited to references, numbers, units and + - * / ( )."""
+    """A FreeCAD expression limited to references, numbers, units, + - * / ( ) and
+    the maths functions in FUNCTIONS."""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(number(value, "expression"))
     if not isinstance(value, str) or not value.strip() or len(value) > 200:
         raise ValueError("expression must be text of 1 to 200 characters, e.g. 'Params.PlateL / 2'")
     text = value.strip()
     pos, previous = 0, None
+    # One entry per open bracket: True when it holds a function's arguments.
+    brackets: list[bool] = []
     while pos < len(text):
         match = TOKEN.match(text, pos)
         if not match or match.end() == pos:
@@ -84,18 +92,43 @@ def expression(value) -> str:
         pos = match.end()
         if kind == "num" and not math.isfinite(float(token)):
             raise ValueError(f"expression {value!r}: {token} is not a finite number")
-        if kind == "ref" and any(part.startswith("__") for part in token.split(".")):
-            raise ValueError(f"expression {value!r}: names starting with __ are not allowed")
         if kind == "ref":
-            if token in UNITS:
-                if previous != "num":
-                    raise ValueError(f"expression {value!r}: unit {token!r} must follow a number")
-            elif "." not in token:
-                raise ValueError(f"expression {value!r}: write {token!r} as Sheet.Alias or Object.Property")
-            if text[pos:].lstrip().startswith("("):
-                raise ValueError(f"expression {value!r}: function calls are not allowed")
-        previous = kind
+            _check_name(value, token, previous, text[pos:].lstrip().startswith("("))
+        if kind == "op":
+            _check_bracket(value, token, previous, brackets)
+        previous = token if kind == "ref" and token in FUNCTIONS else kind
+    if brackets:
+        raise ValueError(f"expression {value!r}: a bracket is not closed")
     return text
+
+
+def _check_name(value: str, token: str, previous: str | None, called: bool) -> None:
+    if any(part.startswith("__") for part in token.split(".")):
+        raise ValueError(f"expression {value!r}: names starting with __ are not allowed")
+    if token in FUNCTIONS:
+        if not called:
+            raise ValueError(f"expression {value!r}: {token} must be called, e.g. {token}(Params.A)")
+        return
+    if called:
+        raise ValueError(
+            f"expression {value!r}: {token}() is not allowed; functions: {', '.join(sorted(FUNCTIONS))}"
+        )
+    if token in UNITS:
+        if previous != "num":
+            raise ValueError(f"expression {value!r}: unit {token!r} must follow a number")
+    elif "." not in token and token not in CONSTANTS:
+        raise ValueError(f"expression {value!r}: write {token!r} as Sheet.Alias or Object.Property")
+
+
+def _check_bracket(value: str, token: str, previous: str | None, brackets: list[bool]) -> None:
+    if token == "(":
+        brackets.append(previous in FUNCTIONS)
+    elif token == ")":
+        if not brackets:
+            raise ValueError(f"expression {value!r}: ')' has no matching '('")
+        brackets.pop()
+    elif token == "," and not (brackets and brackets[-1]):
+        raise ValueError(f"expression {value!r}: ',' only separates a function's arguments")
 
 
 def expressions(value) -> dict[str, str]:

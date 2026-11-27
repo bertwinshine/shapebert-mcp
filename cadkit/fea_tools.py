@@ -30,6 +30,27 @@ CCX_VERSION = re.compile(r"CalculiX Version (\S+?),")
 # CalculiX prints one line per fixed set: "total force (fx,fy,fz) for set FIXED and time 1.0"
 # followed by the three components.
 REACTION_LINE = re.compile(r"total force \(fx,fy,fz\) for set (\S+) and time\s+\S+\s+(\S+)\s+(\S+)\s+(\S+)")
+# Windows reports a crashed process by an NTSTATUS error code (0xC0000000 and up),
+# POSIX by a negative return code, the signal that killed it.
+WINDOWS_CRASHES = {
+    0xC0000005: "access violation",
+    0xC0000017: "out of memory",
+    0xC000001D: "illegal instruction",
+    0xC0000094: "integer division by zero",
+    0xC00000FD: "stack overflow",
+    0xC0000409: "stack buffer overrun",
+}
+POSIX_CRASHES = {
+    4: "illegal instruction",
+    6: "aborted",
+    8: "floating point error",
+    9: "killed",
+    11: "segmentation fault",
+}
+
+
+class CcxCrash(RuntimeError):
+    """CalculiX ended abnormally instead of exiting with an error code of its own."""
 
 
 def _unique_obj(doc, name):
@@ -352,8 +373,21 @@ def _read(path):
         return ""
 
 
+def _crash(exit_code):
+    """'exit code 0xC0000005, access violation' when ccx crashed, else None."""
+    if exit_code < 0 and -exit_code in POSIX_CRASHES:
+        return f"signal {-exit_code}, {POSIX_CRASHES[-exit_code]}"
+    code = exit_code & 0xFFFFFFFF
+    if code >= 0xC0000000:
+        return f"exit code 0x{code:08X}, {WINDOWS_CRASHES.get(code, 'a Windows error')}"
+    return None
+
+
 def _solver_problem(base, exit_code, started, stdout, analysis_type):
     """Why this run's result files can't be trusted, or None if they can."""
+    crash = _crash(exit_code)
+    if crash:
+        return f"CalculiX crashed ({crash})"
     if exit_code:
         return f"CalculiX stopped with exit code {exit_code}"
     for suffix in (".frd", ".dat"):
@@ -378,10 +412,50 @@ def _solver_problem(base, exit_code, started, stdout, analysis_type):
 def _solver_failure(base, problem, stdout, stderr):
     output = (stdout + "\n" + stderr).strip() or _read(base + ".sta").strip()
     tail = "\n".join(output.splitlines()[-TAIL_LINES:])
-    message = f"CalculiX results not used: {problem}. Last {TAIL_LINES} lines of its output:\n{tail}"
+    # The summary goes last: the server reports the last line as the error.
+    message = f"Last {TAIL_LINES} lines of CalculiX's output:\n{tail}\nCalculiX results not used: {problem}."
     # Console output gets past the listener's capture, so the listener log shows it too.
     App.Console.PrintError(f"fea_run: {message}\n")
-    return RuntimeError(message)
+    return (CcxCrash if problem.startswith("CalculiX crashed") else RuntimeError)(message)
+
+
+def _free_run(analysis, work_dir):
+    """After a crash, or between convergence meshes: drop the loaded results and the
+    result files, and give the memory back before the next solve."""
+    import gc
+
+    from femresult.resulttools import purge_results
+
+    purge_results(analysis)
+    for entry in os.listdir(work_dir):
+        if os.path.splitext(entry)[1] in RESULT_SUFFIXES:
+            os.remove(os.path.join(work_dir, entry))
+    gc.collect()
+
+
+def _solve_once_more_on_crash(analysis, solver, ccx, work_dir, threads):
+    """_solve; if CalculiX crashes, free the run, and for a modal run with more than one
+    mode solve once more with half the modes. Returns (inp file, ccx info, retry or None)."""
+    try:
+        return (*_solve(analysis, solver, ccx, work_dir, threads), None)
+    except CcxCrash as crash:
+        _free_run(analysis, work_dir)
+        requested = solver.EigenmodesCount if solver.AnalysisType == "frequency" else 1
+        if requested < 2:
+            raise
+        first = str(crash).splitlines()[-1]
+    fewer = requested // 2
+    solver.EigenmodesCount = fewer
+    try:
+        inp_file, ccx_info = _solve(analysis, solver, ccx, work_dir, threads)
+    except CcxCrash as again:
+        _free_run(analysis, work_dir)
+        raise CcxCrash(f"{again} It crashed with {requested} modes too.") from None
+    finally:
+        solver.EigenmodesCount = requested
+    retry = {"crash": first, "modes_requested": requested, "modes_solved": fewer}
+    App.Console.PrintWarning(f"fea_run: {first} Solved again with {fewer} modes.\n")
+    return inp_file, ccx_info, retry
 
 
 def fea_run(name, work_dir, threads=1):
@@ -398,7 +472,7 @@ def fea_run(name, work_dir, threads=1):
         raise RuntimeError("CalculiX (ccx) was not found. Run doctor for the install steps.")
     gmsh = _make_mesh(mesh)
     meshed = time.time()
-    inp_file, ccx_info = _solve(analysis, solver, ccx, work_dir, threads)
+    inp_file, ccx_info, retry = _solve_once_more_on_crash(analysis, solver, ccx, work_dir, threads)
     record = {
         "element_type": _element_type(inp_file),
         "nodes": mesh.FemMesh.NodeCount,
@@ -408,6 +482,8 @@ def fea_run(name, work_dir, threads=1):
         "mesh_s": _r(meshed - started, 1),
         "solve_s": _r(time.time() - meshed, 1),
     }
+    if retry:
+        record["retry"] = retry
     _store(analysis, "ShapeBertRun", record)
     return {"analysis": name, **record, "element_order": "2nd order (10-node tetrahedra)", "ccx": ccx_info}
 
@@ -499,7 +575,8 @@ def _program_version(binary):
 
 
 def fea_convergence(name, work_dir, threads=1, factor=1.5, meshes=3, band_mesh_sizes=2):
-    """Solve at `meshes` mesh sizes, each `factor` times finer, ending at the setup's size.
+    """Solve at `meshes` mesh sizes, each `factor` times finer, ending at the setup's size,
+    one after another, freeing each run's results and files before the next.
 
     Static and thermomechanical runs also follow the peak von Mises stress outside the
     flagged zones. Those zones keep the width for the coarsest mesh, so every mesh is
@@ -518,8 +595,18 @@ def fea_convergence(name, work_dir, threads=1, factor=1.5, meshes=3, band_mesh_s
     runs, finished = [], False
     try:
         for k in range(meshes - 1, -1, -1):
-            mesh.CharacteristicLengthMax = f"{finest * factor**k} mm"
-            run = fea_run(name, work_dir, threads)
+            if runs:
+                _free_run(analysis, work_dir)
+            size = finest * factor**k
+            mesh.CharacteristicLengthMax = f"{size} mm"
+            try:
+                run = fea_run(name, work_dir, threads)
+            except RuntimeError as e:
+                # The cause stays on the last line, which the server reports as the error.
+                raise type(e)(
+                    f"fea_convergence stopped at the {_r(size, 3)} mm mesh "
+                    f"({len(runs) + 1} of {meshes}).\n{e}"
+                ) from None
             runs.append(
                 {
                     "mesh_size_mm": run["mesh_size_mm"],
@@ -895,7 +982,7 @@ def _scan_peak(res, spots, band):
 
 def _singular_spots(analysis, band):
     """Where linear-elastic stress has no finite limit: fixed faces, sharp inside edges
-    and concentrated loads (on a vertex, an edge, or a face smaller than band^2).
+    and concentrated loads (on a vertex, an edge, or a face less than `band` across).
     Returns (spots, flagged loads)."""
     part = _members(analysis, base="Fem::FemMeshObject")[0].Shape
     spots = [
@@ -915,8 +1002,8 @@ def _singular_spots(analysis, band):
                 kind = _concentrated(sub, element, band)
                 if kind:
                     spots.append((kind, element))
-                    area = _r(element.Area, 3) if sub.startswith("Face") else None
-                    flagged.append({"load": con.Name, "element": sub, "kind": kind, "area_mm2": area})
+                    extent = _r(_extent(element), 3) if sub.startswith("Face") else None
+                    flagged.append({"load": con.Name, "element": sub, "kind": kind, "extent_mm": extent})
     sel = _selectors()
     try:
         edges = sel.resolve_edges(part.Shape, ["concave edges"])
@@ -931,7 +1018,14 @@ def _concentrated(sub, element, band):
         return "load on a vertex"
     if sub.startswith("Edge"):
         return "load on an edge"
-    return "small loaded face" if element.Area < band**2 else None
+    return "small loaded face" if _extent(element) < band else None
+
+
+def _extent(face):
+    """Largest distance across a face. Area alone would flag a long thin face, such as
+    the edge face of a plate, whose load is spread along its length."""
+    points = [v.Point for v in face.Vertexes] + face.OuterWire.discretize(Number=64)
+    return max(a.distanceToPoint(b) for a in points for b in points)
 
 
 def _nearest_spot(spots, point):

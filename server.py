@@ -629,6 +629,17 @@ def set_requirements(name: str, requirements: list[dict]) -> str:
                             a bore or other inner cut-out is not an outer edge)
       thickness             face selector of one flat side (e.g. "top"), unit "mm": distance
                             to the nearest opposite flat face behind it
+      position              face selector of a feature, axis "X"/"Y"/"Z", unit "mm": the
+                            feature's centre along that axis (a hole's centre is on its axis,
+                            halfway along it; another face's is its centre of mass), e.g.
+                            "bore centre 50 mm above the base": target "bore", axis "Z",
+                            value 50; may be 0 or negative
+      offset                face selector of a feature, plus face: a selector of one flat
+                            face, unit "mm": distance from each feature's centre to that
+                            face's plane, e.g. "M8 holes 20 mm from the end": target
+                            "cylindrical faces diameter 9", face "-X", value 20. For a
+                            pattern the same distance from both ends, give a list,
+                            face ["-X", "+X"]: each centre is measured to the nearer plane
       volume                no target, unit "mm3"
       mass                  no target, unit "kg", plus density_kg_m3
       feature               face or edge selector that has to match something, no value
@@ -641,8 +652,9 @@ def set_requirements(name: str, requirements: list[dict]) -> str:
     mass, and counts are exact. "min": at least value ("at least 3 mm wall": thickness, op
     "min", value 3). "max": at most value ("under 2 kg": mass, op "max", value 2). min and
     max take no tolerance.
-    Unknown kinds, ops or keys, numbers that are not finite and positive, wrong units and
-    selectors that do not parse are refused. Returns the stored check ids."""
+    Unknown kinds, ops or keys, numbers that are not finite and positive (a position may
+    be any finite number, an offset 0 or more), wrong units and selectors that do not
+    parse are refused. Returns the stored check ids."""
     try:
         checked = reqs.check_all(requirements)
         ref = build_checks.object_ref(name)
@@ -850,7 +862,10 @@ def bind_parameters(name: str, expressions: dict[str, str | float]) -> str:
     e.g. {"Radius": "Params.BoreD / 2", "Height": "Params.Thk",
     "Placement.Base.x": "Params.PCD / 2", "NumberPolar": "Params.NHoles"}.
     An expression may use Sheet.Alias or Object.Property references, numbers with
-    units (2 mm, 30 deg), + - * / and brackets; function calls and text are refused.
+    units (2 mm, 30 deg), + - * /, brackets, pi and the maths functions sin, cos, tan,
+    asin, acos, atan, atan2, sqrt, abs, min and max (angles in degrees, as in FreeCAD),
+    e.g. {"Placement.Rotation.Angle": "atan2(Params.RibH, Params.RibL)"} for a cutter
+    that follows a rib's slope. Other function calls and text are refused.
     Only length, angle, number, vector and placement properties can be bound.
     Returns the values after the recompute; if anything fails, the object keeps its
     old expressions."""
@@ -1311,7 +1326,10 @@ def fea_run(name: str = "FEA", timeout_s: float = 600) -> str:
     Returns node and element counts, mesh size and mesh/solve times, and `ccx` (the
     CalculiX binary, version and thread count). CalculiX runs single-threaded because
     multithreaded builds can give unstable results; the user can opt in to more
-    threads with FREECAD_MCP_CCX_THREADS. fea_results reads the results."""
+    threads with FREECAD_MCP_CCX_THREADS. fea_results reads the results.
+    If CalculiX crashes (e.g. exit code 0xC0000005, an access violation) the error says
+    so and the run's results and files are freed. A modal run is then solved once more
+    with half the modes; fea_results' assumptions warn about it (solver_crash_retried)."""
     try:
         fea.check_name(name)
         threads = fea.ccx_threads()
@@ -1341,8 +1359,9 @@ def fea_convergence(name: str = "FEA", timeout_s: float = 900) -> str:
     mesh_size_mm and check again. The coarser meshes are
     cheap, so it takes about 1.4 x as long as one fea_run; a run longer than timeout_s
     returns still_running and a job_id for get_job_result. The results of mesh h stay
-    loaded and fea_results shows the verdict in its assumptions block. Run it before
-    calling a result final."""
+    loaded and fea_results shows the verdict in its assumptions block. The meshes are
+    solved one after another, each run's results freed before the next; if one fails,
+    the error names that mesh. Run it before calling a result final."""
     try:
         fea.check_name(name)
         threads = fea.ccx_threads()
@@ -1377,8 +1396,8 @@ def fea_results(name: str = "FEA", probes: list[list[float]] | None = None) -> s
     force sum at the fixed faces (equilibrium_ok: it balances the applied loads),
     the mesh size and the safety factor against yield. Also the peak von Mises stress
     away from singular spots (more than 2 mesh sizes from fixed faces, sharp inside
-    edges and concentrated loads: a load on a vertex, an edge or a face smaller than
-    (2 x mesh size)^2) with its safety factor: report that one when the overall peak
+    edges and concentrated loads: a load on a vertex, an edge or a face less than
+    2 x mesh size across) with its safety factor: report that one when the overall peak
     sits at such a spot.
     Modal: each mode's natural frequency, its peak motion direction and place, and the
     part mass; repeated_with_mode marks pairs of equal frequency (symmetric sections).

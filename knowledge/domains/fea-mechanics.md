@@ -176,8 +176,8 @@ ShapeBert uses it, and the source.
   the stress depends only on the resultant, so it is safe to read there.
 - 3D FEA: the peak at a singular point keeps rising as the mesh is refined;
   displacements stay finite.
-- ShapeBert: `fea_results` flags a load on a vertex or an edge, a loaded face smaller
-  than (2 x mesh size)^2, and a peak within 2 mesh sizes of such a load, a fixed face
+- ShapeBert: `fea_results` flags a load on a vertex or an edge, a loaded face less
+  than 2 x mesh size across (its largest extent), and a peak within 2 mesh sizes of such a load, a fixed face
   or a sharp inside edge, and then also reports the peak outside those zones. To get
   a real value: read stress away from the spot, model the fillet radius, or use a
   linearised or averaged stress.

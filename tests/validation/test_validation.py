@@ -122,6 +122,7 @@ def solved():
         results = runs[case["fea_setup"]["mesh_size_mm"]]
         out[case["id"]] = {
             "results": results,
+            "runs": runs,
             "rows": cases.compare(case, runs, server),
             "env": cases.environment(server, results),
         }
@@ -183,6 +184,16 @@ def test_peak_stress_at_the_clamped_end_is_flagged_as_a_singularity(solved):
     assert "stress_at_singularity" in codes
     assert results["max_von_mises_away_from_singularities_at_mm"][0] > 8
     assert "near_singularity" not in results["probes"][1]
+
+
+@live
+def test_the_load_along_the_thin_le1_edge_is_not_taken_for_a_concentrated_load(solved):
+    """The loaded outer face is 50 mm thick but metres long. By area (about 0.24 m^2)
+    it is less than (2 x 500 mm)^2; across it is far more than 2 x 500 mm."""
+    for mesh, results in solved[1]["nafems_le1"]["runs"].items():
+        codes = {w["code"] for w in results["assumptions"]["warnings"]}
+        assert "load_singularity" not in codes, mesh
+        assert "near_singularity" not in results["probes"][0], mesh
 
 
 @live

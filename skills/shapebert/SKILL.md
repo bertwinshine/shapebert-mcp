@@ -154,8 +154,13 @@ values", follow conventions.md / the domain defaults and report every value chos
    with `source_quote` = the user's exact words ("6 x M10 holes", "PCD 100", "12 mm
    thick", "chamfer the top edges"). Limits are checks with `op`: "at least 3 mm wall"
    is a thickness with op "min", "under 2 kg" a mass with op "max"; "eq" (the default)
-   is for an exact value. Values you chose yourself (defaults, calculator results)
-   are not requirements; report those as before.
+   is for an exact value. Where a feature sits is a check too: "bore centre 50 mm
+   above the base" is a `position` (target "bore", axis "Z", value 50), "M8 holes
+   20 mm from the end" an `offset` (target the holes, face "-X", value 20; face
+   ["-X", "+X"] when they sit 20 mm from both ends). Use these checks for such
+   dimensions; don't confirm them by hand from `measure` or `list_faces`.
+   Values you chose yourself (defaults, calculator results) are not requirements;
+   report those as before.
    Hole rules: when the part has bolt or mounting holes, add two more checks per hole
    size, each with op "min" and `source` (the rule) in place of `source_quote`:
    `edge_distance` (hole centre to the nearest outer edge) = `min_edge_distance_mm`
@@ -209,8 +214,8 @@ values", follow conventions.md / the domain defaults and report every value chos
   warning in it, word for word.
 - Never report stress at a support or a singularity as a result. When the warnings
   say the peak sits next to a fixed face, a sharp inside edge or a concentrated load
-  (`load_singularity`: a load on a vertex, an edge or a face smaller than
-  (2 x mesh size)^2), report `max_von_mises_away_from_singularities_mpa` and its
+  (`load_singularity`: a load on a vertex, an edge or a face less than
+  2 x mesh size across), report `max_von_mises_away_from_singularities_mpa` and its
   safety factor instead, and say why. Treat a probe marked `near_singularity` the same
   way. Suggest a real contact area for a concentrated load and a fillet radius for a
   sharp inside corner.
