@@ -28,10 +28,10 @@ FREECADCMD = (
 OLD_COPY = "from pathlib import Path\nPath(r'{marker}').write_text('the installed copy ran')\n"
 
 
-def test_readme_and_ci_load_the_listener_by_path():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+def test_install_docs_and_ci_load_the_listener_by_path():
+    readme = (ROOT / "docs" / "install.md").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
-    for name, text in (("README.md", readme), ("tests.yml", workflow)):
+    for name, text in (("docs/install.md", readme), ("tests.yml", workflow)):
         assert f'freecadcmd -c "{LAUNCH}"' in text or f'freecadcmd.exe" -c "{LAUNCH}"' in text, name
         bare = [
             line

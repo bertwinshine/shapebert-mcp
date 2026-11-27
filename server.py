@@ -1329,7 +1329,11 @@ def fea_run(name: str = "FEA", timeout_s: float = 600) -> str:
     threads with FREECAD_MCP_CCX_THREADS. fea_results reads the results.
     If CalculiX crashes (e.g. exit code 0xC0000005, an access violation) the error says
     so and the run's results and files are freed. A modal run is then solved once more
-    with half the modes; fea_results' assumptions warn about it (solver_crash_retried)."""
+    with half the modes; fea_results' assumptions warn about it (solver_crash_retried).
+    If CalculiX refuses an element as inside out (nonpositive jacobian), the error says
+    the mesher made an invalid element; the part is meshed once more with Gmsh's
+    high-order optimisation and solved again. The reply then has `remesh`, and
+    fea_results' assumptions warn about it (invalid_element_remeshed)."""
     try:
         fea.check_name(name)
         threads = fea.ccx_threads()

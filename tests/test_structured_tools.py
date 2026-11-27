@@ -192,4 +192,4 @@ def test_code_off_message_points_to_the_structured_tools_and_not_to_plugin_files
     message = server.safety.CODE_OFF_MESSAGE
     assert "boolean" in message and "pattern_polar" in message
     assert ".mcp.json" not in message and "plugin.json" not in message
-    assert "README" in message
+    assert "docs/security.md" in message and '"Switching free-form code on"' in message

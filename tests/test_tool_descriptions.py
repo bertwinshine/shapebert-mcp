@@ -102,9 +102,9 @@ def test_tools_and_prompts_match_snapshot():
     )
 
 
-def test_readme_tool_table_matches_the_hints():
+def test_security_docs_tool_table_matches_the_hints():
     access = {}
-    for line in (ROOT / "README.md").read_text(encoding="utf-8").splitlines():
+    for line in (ROOT / "docs" / "security.md").read_text(encoding="utf-8").splitlines():
         row = re.fullmatch(r"\| (.+?) \| (Read-only|Changes model|Can overwrite)\b.*\|", line)
         if row:
             access.update((name, row[2]) for name in re.findall(r"`(\w+)`", row[1]))

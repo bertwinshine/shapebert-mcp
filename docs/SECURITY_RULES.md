@@ -16,7 +16,7 @@
   and refuses reflection, dunders and FreeCADGui command runners; `save_example` always
   refuses such code. Add a module to the allow-list only with a test.
 - Plugin rules: everything the server runs stays inside the plugin folder; files under
-  256 KiB (watch `uv.lock`); README describes everything the plugin runs, sends or fetches.
+  256 KiB (watch `uv.lock`); docs/security.md describes everything the plugin runs, sends or fetches.
 - Add-on policy: core uses plain FreeCAD only (Part, Draft, Spreadsheet, FEM). If
   something is missing, report it with install steps, never install anything.
 

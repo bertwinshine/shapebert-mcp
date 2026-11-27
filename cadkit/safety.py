@@ -18,7 +18,7 @@ CODE_OFF_MESSAGE = (
     "Free-form code is switched off (the default). Build with the structured tools instead: "
     "create_box, create_cylinder, set_placement, bind_parameters, pattern_polar, pattern_linear, "
     "boolean, fillet_edges, chamfer_edges. If the part really needs free-form code, tell the user "
-    "what for; they can switch it on themselves as the ShapeBert README describes under "
+    "what for; they can switch it on themselves as ShapeBert's docs/security.md describes under "
     '"Switching free-form code on". Do not edit the plugin\'s own files: updates replace them.'
 )
 
@@ -99,7 +99,7 @@ SYSTEM_ACCESS_MESSAGE = (
     "limited to FreeCAD's CAD modules and plain maths/data modules (math, collections, "
     "json, re and similar). Use the file tools (import_model, export_model, save_document) "
     "for files. If you really need this, the user can set FREECAD_MCP_ALLOW_SYSTEM=1 the same "
-    'way as FREECAD_MCP_ALLOW_CODE (ShapeBert README, "Switching free-form code on").'
+    'way as FREECAD_MCP_ALLOW_CODE (ShapeBert docs/security.md, "Switching free-form code on").'
 )
 
 

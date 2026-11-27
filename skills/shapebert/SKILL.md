@@ -136,7 +136,7 @@ values", follow conventions.md / the domain defaults and report every value chos
    `warnings`; on error the objects are rolled back - fix the code and retry, don't
    stack broken attempts.
    If a part truly needs free-form code, tell the user what you would build and why,
-   and point them to "Switching free-form code on" in the README. Don't ask them to
+   and point them to "Switching free-form code on" in docs/security.md. Don't ask them to
    edit the plugin's files (updates replace them), and never try to get around the
    switch.
 4. If a reply says `still_running`, the job is still working in FreeCAD. Call
